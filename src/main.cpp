@@ -1,5 +1,5 @@
 
-/*------------------------------------------------------------------------*/
+/*----------------------------------------------------------------------*/
 // Uncomment one of these to set the role of the device
 #define TRANSMITTER
 // #define RECEIVER
@@ -8,22 +8,65 @@
 #include <Adafruit_SleepyDog.h>
 #include <RH_RF95.h>
 
-#ifdef TRANSMITTER
-#include <SPI.h>
-#include <DigitalIO.h>
-#include <PsxControllerBitBang.h>
-
 #include <avr/pgmspace.h>
 typedef const __FlashStringHelper *FlashStr;
 typedef const byte *PGM_BYTES_P;
 #define PSTR_TO_F(s) reinterpret_cast<const __FlashStringHelper *>(s)
+
+/*TRANSMITTER DEFINITIONS*/
+/*----------------------------------------------------------------------*/
+// #ifdef TRANSMITTER
+#include <SPI.h>
+#include <DigitalIO.h>
+#include <PsxControllerBitBang.h>
+// #endif
+
+/*RECIEVER DEFINITIONS*/
+/*----------------------------------------------------------------------*/
+#ifdef RECEIVER
+#define MOTORA_REN A4
+#define MOTORA_LEN A5
+#define MOTORA_RPWM 6
+#define MOTORA_LPWM 5
+#define MOTORA_RIS A0
+#define MOTORA_LIS A1
+
+#define MOTORB_REN 12
+#define MOTORB_LEN 11
+#define MOTORB_RPWM 9
+#define MOTORB_LPWM 10
+#define MOTORB_RIS A2
+#define MOTORB_LIS A3
 #endif
 
 // Pin definitions
 #define RFM95_CS 8
 #define RFM95_RST 4
 #define RFM95_INT 3
-#ifdef TRANSMITTER
+
+// Radio configuration
+#define RF95_FREQ 915.0
+RH_RF95 rfm(RFM95_CS, RFM95_INT);
+
+struct ControllerState
+{
+  uint16_t buttonWord; // Stores the pressed buttons as a bitmask
+  uint8_t leftX;       // Left joystick X-axis
+  uint8_t leftY;       // Left joystick Y-axis
+  uint8_t rightX;      // Right joystick X-axis
+  uint8_t rightY;      // Right joystick Y-axis
+};
+
+ControllerState currentState = {0, 0, 0, 0, 0};
+ControllerState previousState = {0, 0, 0, 0, 0};
+
+uint16_t buttonWordToDecipher = 0;
+
+// PsxControllerHwSpi<10> psxCtrl;
+
+/*TRANSMITTER FUNCTIONS AND VARIABLES*/
+/*----------------------------------------------------------------------*/
+// #ifdef TRANSMITTER
 // These can be changed freely when using the bitbanged protocol
 const byte PIN_PS2_ATT = 10;
 const byte PIN_PS2_CMD = 11;
@@ -37,10 +80,6 @@ const byte PIN_HAVECONTROLLER = A1;
 // PsxControllerHwSpi<10> psxCtrl;
 PsxControllerBitBang<PIN_PS2_ATT, PIN_PS2_CMD, PIN_PS2_DAT, PIN_PS2_CLK> psx;
 boolean haveController = false;
-
-// Radio configuration
-#define RF95_FREQ 915.0
-RH_RF95 rfm(RFM95_CS, RFM95_INT);
 
 const char buttonSelectName[] PROGMEM = "Select";
 const char buttonL3Name[] PROGMEM = "L3";
@@ -77,18 +116,8 @@ const char *const psxButtonNames[PSX_BUTTONS_NO] PROGMEM = {
     buttonCrossName,
     buttonSquareName};
 
-struct ControllerState
-{
-  uint16_t buttonWord; // Stores the pressed buttons as a bitmask
-  uint8_t leftX;       // Left joystick X-axis
-  uint8_t leftY;       // Left joystick Y-axis
-  uint8_t rightX;      // Right joystick X-axis
-  uint8_t rightY;      // Right joystick Y-axis
-};
-
-ControllerState currentState = {0, 0, 0, 0, 0};
-ControllerState previousState = {0, 0, 0, 0, 0};
-
+/*TRANSMITTER & RECEIVER FUNCTIONS*/
+/*----------------------------------------------------------------------*/
 byte psxButtonToIndex(PsxButtons psxButtons)
 {
   byte i;
@@ -100,22 +129,44 @@ byte psxButtonToIndex(PsxButtons psxButtons)
     }
     psxButtons >>= 1U;
   }
-  Serial.print("button idx: ");
-  Serial.println(i);
   return i;
 }
 
 FlashStr getButtonName(PsxButtons psxButton)
 {
+  Serial.println("getting btn name");
   FlashStr ret = F("");
   byte b = psxButtonToIndex(psxButton);
   if (b < PSX_BUTTONS_NO)
   {
     PGM_BYTES_P bName = reinterpret_cast<PGM_BYTES_P>(pgm_read_ptr(&(psxButtonNames[b])));
     ret = PSTR_TO_F(bName);
+    Serial.print("btn name: ");
+    Serial.println(ret);
   }
   return ret;
 }
+
+bool stateChanged(const ControllerState &current, const ControllerState &previous)
+{
+  return current.buttonWord != previous.buttonWord ||
+         current.leftX != previous.leftX ||
+         current.leftY != previous.leftY ||
+         current.rightX != previous.rightX ||
+         current.rightY != previous.rightY;
+}
+
+void updateCurrentState()
+{
+  currentState.buttonWord = psx.getButtonWord();
+  psx.getLeftAnalog(currentState.leftX, currentState.leftY);
+  psx.getRightAnalog(currentState.rightX, currentState.rightY);
+}
+
+/*TRANSMITTER FUNCTIONS*/
+/*----------------------------------------------------------------------*/
+#ifdef TRANSMITTER
+
 
 void dumpButtons(PsxButtons psxButtons)
 {
@@ -151,22 +202,6 @@ void dumpAnalog(const char *str, const byte x, const byte y)
   Serial.println(y);
 }
 
-bool stateChanged(const ControllerState &current, const ControllerState &previous)
-{
-  return current.buttonWord != previous.buttonWord ||
-         current.leftX != previous.leftX ||
-         current.leftY != previous.leftY ||
-         current.rightX != previous.rightX ||
-         current.rightY != previous.rightY;
-}
-
-void updateCurrentState()
-{
-  currentState.buttonWord = psx.getButtonWord();
-  psx.getLeftAnalog(currentState.leftX, currentState.leftY);
-  psx.getRightAnalog(currentState.rightX, currentState.rightY);
-}
-
 void sendStateIfChanged()
 {
   if (stateChanged(currentState, previousState))
@@ -176,7 +211,7 @@ void sendStateIfChanged()
     memcpy(packet, &currentState, sizeof(ControllerState));
 
     // Send the packet via RFM9x
-    // rfm.send(packet, sizeof(packet));
+    rfm.send(packet, sizeof(packet));
 
     // Print for debugging
     Serial.println(F("Packet sent!"));
@@ -207,13 +242,73 @@ const char *const controllerTypeStrings[PSCTRL_MAX + 1] PROGMEM = {
     ctrlTypeDsWireless,
     ctrlTypeGuitHero,
     ctrlTypeOutOfBounds};
-
-// void controllerReadCheck()
-// {
-// }
-
 #endif
 
+/*RECEIVER FUNCTIONS*/
+/*----------------------------------------------------------------------*/
+#ifdef RECEIVER
+void receivePacket()
+{
+  if (rfm.available())
+  {
+    Serial.println("msg");
+    uint8_t buffer[sizeof(ControllerState)];
+    uint8_t len = sizeof(buffer);
+
+    // Receive the packet
+    rfm.recv(buffer, &len);
+
+    Serial.println("msg rcv'ed");
+
+    // Deserialize into a struct
+    memcpy(&currentState, buffer, sizeof(ControllerState));
+
+    // Process the received state
+    Serial.print(F("ButtonWord: "));
+    Serial.println(currentState.buttonWord, HEX);
+    Serial.print(F("LeftX: "));
+    Serial.println(currentState.leftX);
+    Serial.print(F("LeftY: "));
+    Serial.println(currentState.leftY);
+    Serial.print(F("RightX: "));
+    Serial.println(currentState.rightX);
+    Serial.print(F("RightY: "));
+    Serial.println(currentState.rightY);
+  }
+}
+
+void controlsDecision()
+{
+  if (stateChanged(currentState, previousState))
+  {
+    buttonWordToDecipher = currentState.buttonWord;
+    previousState = currentState;
+    getButtonName(buttonWordToDecipher);
+  }
+
+  // 	static byte slx, sly, srx, sry;
+
+  //   byte lx, ly;
+  //   if (lx != slx || ly != sly)
+  //   {
+  //     dumpAnalog("Left", lx, ly);
+  //     slx = lx;
+  //     sly = ly;
+  //   }
+
+  //   byte rx, ry;
+  //   if (rx != srx || ry != sry)
+  //   {
+  //     dumpAnalog("Right", rx, ry);
+  //     srx = rx;
+  //     sry = ry;
+  //   }
+  // }
+}
+#endif
+
+/*TRANSMITTER SETUP AND LOOP*/
+/*----------------------------------------------------------------------*/
 #ifdef TRANSMITTER
 
 void setup()
@@ -244,7 +339,6 @@ void setup()
 
 void loop()
 {
-  Serial.println("ctrlr chk");
   if (!haveController)
   {
     if (psx.begin())
@@ -295,8 +389,8 @@ void loop()
       sendStateIfChanged();
 
       // // Optional: Debugging outputs
-      fastDigitalWrite(PIN_BUTTONPRESS, !!psx.getButtonWord());
-      dumpButtons(psx.getButtonWord());
+      // fastDigitalWrite(PIN_BUTTONPRESS, !!psx.getButtonWord());
+      // dumpButtons(psx.getButtonWord());
     }
   }
 
@@ -305,6 +399,8 @@ void loop()
 
 #endif
 
+/*RECEIVER SETUP AND LOOP*/
+/*----------------------------------------------------------------------*/
 #ifdef RECEIVER
 void setup()
 {
@@ -325,40 +421,34 @@ void setup()
   }
   rfm.setFrequency(915.0);
   Serial.println("RFM95 initialized");
+
+  // Setup pins for BTS7960 Motor Driver
+  pinMode(MOTORA_REN, OUTPUT);
+  pinMode(MOTORA_LEN, OUTPUT);
+  pinMode(MOTORA_RPWM, OUTPUT);
+  pinMode(MOTORA_LPWM, OUTPUT);
+  pinMode(MOTORA_RIS, INPUT);
+  pinMode(MOTORA_LIS, INPUT);
+  digitalWrite(MOTORA_REN, LOW);
+  digitalWrite(MOTORA_LEN, LOW);
+  digitalWrite(MOTORA_RPWM, LOW);
+  digitalWrite(MOTORA_LPWM, LOW);
+
+  pinMode(MOTORB_REN, OUTPUT);
+  pinMode(MOTORB_LEN, OUTPUT);
+  pinMode(MOTORB_RPWM, OUTPUT);
+  pinMode(MOTORB_LPWM, OUTPUT);
+  pinMode(MOTORB_RIS, INPUT);
+  pinMode(MOTORB_LIS, INPUT);
+  digitalWrite(MOTORB_REN, LOW);
+  digitalWrite(MOTORB_LEN, LOW);
+  digitalWrite(MOTORB_RPWM, LOW);
+  digitalWrite(MOTORB_LPWM, LOW);
 }
 
 void loop()
 {
-  if (rfm.available())
-  {
-    uint8_t buffer[128];
-    uint8_t len = sizeof(buffer);
-
-    // Receive packet
-    rfm.recv(buffer, &len);
-    buffer[len] = '\0'; // Null-terminate for safety
-    String packet = String((char *)buffer);
-
-    // Parse packet
-    Serial.println("Received packet: " + packet);
-
-    // Example: Parse values (assuming the same order as the transmitter)
-    int rStickY, rStickX, steer_left, steer_right, stop, max_control;
-    sscanf(packet.c_str(), "%d,%d,%d,%d,%d,%d", &rStickY, &rStickX, &steer_left, &steer_right, &stop, &max_control);
-
-    // Handle parsed values
-    Serial.print("rStickY: ");
-    Serial.println(rStickY);
-    Serial.print("rStickX: ");
-    Serial.println(rStickX);
-    Serial.print("Steer Left: ");
-    Serial.println(steer_left);
-    Serial.print("Steer Right: ");
-    Serial.println(steer_right);
-    Serial.print("Stop: ");
-    Serial.println(stop);
-    Serial.print("Max Control: ");
-    Serial.println(max_control);
-  }
+  receivePacket();
+  controlsDecision();
 }
 #endif
