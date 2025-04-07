@@ -1,6 +1,7 @@
 
 /*----------------------------------------------------------------------*/
 // Uncomment one of these to set the role of the device
+// #define DEBUG
 // #define TRANSMITTER
 #define RECEIVER
 
@@ -36,6 +37,8 @@ typedef const byte *PGM_BYTES_P;
 #define MOTORB_LPWM 10
 #define MOTORB_RIS A2
 #define MOTORB_LIS A3
+
+#define STEER_PWM 3
 #endif
 
 // Pin definitions
@@ -60,7 +63,7 @@ ControllerState previousState = {0, 0, 0, 0, 0};
 
 uint16_t buttonWordToDecipher = 0;
 
-/*TRANSMITTER FUNCTIONS AND VARIABLES*/
+/*TRANSMITTER OBJECTS AND VARIABLES*/
 /*----------------------------------------------------------------------*/
 // #ifdef TRANSMITTER
 // These can be changed freely when using the bitbanged protocol
@@ -76,7 +79,6 @@ const byte PIN_HAVECONTROLLER = A1;
 // PsxControllerHwSpi<10> psxCtrl;
 PsxControllerBitBang<PIN_PS2_ATT, PIN_PS2_CMD, PIN_PS2_DAT, PIN_PS2_CLK> psx;
 boolean haveController = false;
-
 
 const char buttonSelectName[] PROGMEM = "Select";
 const char buttonL3Name[] PROGMEM = "L3";
@@ -101,6 +103,10 @@ const char *const psxButtonNames[PSX_BUTTONS_NO] PROGMEM = {
     buttonL2Name,       buttonR2Name,     buttonL1Name,    buttonR1Name,
     buttonTriangleName, buttonCircleName, buttonCrossName, buttonSquareName};
 
+bool parking_Brake = false;
+int maximumSpeed = 0;  // Maximum speed of the car
+bool enableToggle = false;  // Toggle for enabling/disabling the car
+
 /*TRANSMITTER & RECEIVER FUNCTIONS*/
 /*----------------------------------------------------------------------*/
 byte psxButtonToIndex(PsxButtons psxButtons) {
@@ -115,7 +121,6 @@ byte psxButtonToIndex(PsxButtons psxButtons) {
 }
 
 FlashStr getButtonName(PsxButtons psxButton) {
-  Serial.println("getting btn name");
   FlashStr ret = F("");
   byte b = psxButtonToIndex(psxButton);
   if (b < PSX_BUTTONS_NO) {
@@ -140,7 +145,6 @@ void updateCurrentState() {
   psx.getLeftAnalog(currentState.leftX, currentState.leftY);
   psx.getRightAnalog(currentState.rightX, currentState.rightY);
 }
-
 
 #ifdef TRANSMITTER
 /*TRANSMITTER FUNCTIONS*/
@@ -211,6 +215,152 @@ const char *const controllerTypeStrings[PSCTRL_MAX + 1] PROGMEM = {
     ctrlTypeOutOfBounds};
 #endif
 
+#ifdef RECEIVER
+/*RECEIVER FUNCTIONS*/
+/*----------------------------------------------------------------------*/
+void receivePacket() {
+  if (rfm.available()) {
+    uint8_t buffer[sizeof(ControllerState)];
+    uint8_t len = sizeof(buffer);
+
+    // Receive the packet
+    rfm.recv(buffer, &len);
+
+    // Deserialize into a struct
+    memcpy(&currentState, buffer, sizeof(ControllerState));
+
+    // // Process the received state
+    // Serial.print(F("ButtonWord: "));
+    // Serial.print(currentState.buttonWord, HEX);
+    // Serial.print(F(" "));
+    // Serial.print(currentState.leftX);
+    // Serial.print(F(" "));
+    // Serial.print(currentState.leftY);
+    // Serial.print(F(" "));
+    // Serial.print(currentState.rightX);
+    // Serial.print(F(" "));
+    // Serial.println(currentState.rightY);
+  }
+}
+
+void handleButtonPress(const String &buttonName) {
+  if (buttonName == "Select") {
+    // Perform action for Select button
+  } else if (buttonName == "Start") {
+    Serial.println(F("Start button pressed!"));
+    parking_Brake = true;
+  } else if (buttonName == "Up") {
+    Serial.println(F("Up button pressed!"));
+    maximumSpeed += 25;
+  } else if (buttonName == "Down") {
+    Serial.println(F("Down button pressed!"));
+    maximumSpeed -= 25;
+  } else if (buttonName == "Left") {
+    Serial.println(F("Left button pressed!"));
+    // Perform action for Left button
+  } else if (buttonName == "Right") {
+    Serial.println(F("Right button pressed!"));
+    // Perform action for Right button
+  } else if (buttonName == "Triangle") {
+    Serial.println(F("Triangle button pressed!"));
+    // Perform action for Triangle button
+  } else if (buttonName == "Circle") {
+    Serial.println(F("Circle button pressed!"));
+    // Perform action for Circle button
+  } else if (buttonName == "Cross") {
+    Serial.println(F("Cross button pressed!"));
+    // Perform action for Cross button
+  } else if (buttonName == "Square") {
+    Serial.println(F("Square button pressed!"));
+    // Perform action for Square button
+  } else if (buttonName == "L1") {
+    Serial.println(F("L1 button pressed!"));
+    // Perform action for L1 button
+  } else if (buttonName == "R1") {
+    Serial.println(F("R1 button pressed!"));
+    // Perform action for R1 button
+  } else if (buttonName == "L2") {
+    Serial.println(F("L2 button pressed!"));
+    // Perform action for L2 button
+  } else if (buttonName == "R2") {
+    Serial.println(F("R2 button pressed!"));
+    enableToggle = !enableToggle;
+  } else if (buttonName == "L3") {
+    Serial.println(F("L3 button pressed!"));
+    // Perform action for L3 button
+  } else if (buttonName == "R3") {
+    Serial.println(F("R3 button pressed!"));
+    // Perform action for R3 button
+  } else {
+    Serial.println(F("Unknown button pressed!"));
+  }
+}
+
+void controlsDecision() {
+  if (stateChanged(currentState, previousState)) {
+    buttonWordToDecipher = currentState.buttonWord;
+    previousState = currentState;
+    getButtonName(buttonWordToDecipher);
+    FlashStr buttonName = F("");
+    Serial.print(buttonName);
+    Serial.print(F(" "));
+    handleButtonPress(buttonName);
+
+    // Set the motor direction and speed based on the joystick values
+    int pwmValue = 0;
+    bool forward = false;
+    bool backward = false;
+    if (currentState.leftY > 140) {
+      // Map values from 140 to 255 to 0 to 255
+      pwmValue = map(currentState.leftY, 140, 255, 0, 255);
+      Serial.print(F(" -> PWM: "));
+      Serial.print(pwmValue);
+      Serial.print(F(" "));
+      forward = true;
+      backward = false;
+    } else if (currentState.leftY < 110) {
+      // Map values from 110 to 0 to 0 to 255
+      pwmValue = map(currentState.leftY, 110, 0, 0, 255);
+      Serial.print(F(" <- PWM: "));
+      Serial.print(pwmValue);
+      Serial.print(F(" "));
+      forward = false;
+      backward = true;
+    } else {
+      // Dead zone: set PWM to 0
+      pwmValue = 0;
+      forward = false;
+      backward = false;
+    }
+
+    // Use the Right Joystick to control the steering Servo
+    int steerPwmValue = 0;
+    if (currentState.rightX > 140) {
+      // Map values from 140 to 255 to 0 to 255
+      steerPwmValue = map(currentState.rightX, 135, 255, 0, 255);
+      Serial.print(F("STR RT:  "));
+      Serial.print(steerPwmValue);
+    } else if (currentState.rightX < 110) {
+      // Map values from 110 to 0 to 0 to 255
+      steerPwmValue = map(currentState.rightX, 105, 0, 0, 255);
+      Serial.print(F("STR LT: "));
+      Serial.println(steerPwmValue);
+    } else {
+      // Dead zone: set PWM to 0
+      steerPwmValue = 0;
+    }
+
+    // Write the PWM value to the desired pin
+    digitalWrite(MOTORA_REN, forward ? HIGH : LOW);
+    digitalWrite(MOTORA_LEN, backward ? HIGH : LOW);
+    analogWrite(STEER_PWM, steerPwmValue);
+    analogWrite(MOTORA_RPWM, pwmValue);
+    analogWrite(MOTORA_LPWM, pwmValue);
+  }
+}
+#endif
+
+#ifdef DEBUG
 void sendDebug() {
   // Serialize the struct into a byte array
   uint8_t packet[sizeof(ControllerState)];
@@ -235,47 +385,7 @@ void sendDebug() {
   // // Update the previous state
   // previousState = currentState;
 }
-
-#ifdef RECEIVER
-/*RECEIVER FUNCTIONS*/
-/*----------------------------------------------------------------------*/
-void receivePacket() {
-  if (rfm.available()) {
-    uint8_t buffer[sizeof(ControllerState)];
-    uint8_t len = sizeof(buffer);
-
-    // Receive the packet
-    rfm.recv(buffer, &len);
-
-    // Deserialize into a struct
-    memcpy(&currentState, buffer, sizeof(ControllerState));
-
-    // Process the received state
-    Serial.print(F("ButtonWord: "));
-    Serial.print(currentState.buttonWord, HEX);
-    Serial.print(F(" "));
-    Serial.print(currentState.leftX);
-    Serial.print(F(" "));
-    Serial.print(currentState.leftY);
-    Serial.print(F(" "));
-    Serial.print(currentState.rightX);
-    Serial.print(F(" "));
-    Serial.println(currentState.rightY);
-
-  }
-}
-
-void controlsDecision() {
-  if (stateChanged(currentState, previousState)) {
-    buttonWordToDecipher = currentState.buttonWord;
-    previousState = currentState;
-    getButtonName(buttonWordToDecipher);
-  }
-
-  
-}
 #endif
-
 /*TRANSMITTER SETUP AND LOOP*/
 /*----------------------------------------------------------------------*/
 #ifdef TRANSMITTER
@@ -303,10 +413,11 @@ void setup() {
 }
 
 void loop() {
-  // int delayTime = 0; 
+  // int delayTime = 0;
   // if (Serial.available()) {
   //   String input =
-  //       Serial.readStringUntil('\n');  // Read input until a newline character
+  //       Serial.readStringUntil('\n');  // Read input until a newline
+  //       character
   //   input.trim();  // Remove any leading or trailing whitespace
 
   //   delayTime = input.toInt();  // Convert input to an integer
@@ -318,50 +429,50 @@ void loop() {
   //   }
   // }
 
-if (!haveController) {
-  if (psx.begin()) {
-    Serial.println(F("Controller found!"));
-    delay(300);
-    if (!psx.enterConfigMode()) {
-      Serial.println(F("Cannot enter config mode"));
-    } else {
-      PsxControllerType ctype = psx.getControllerType();
-      PGM_BYTES_P cname = reinterpret_cast<PGM_BYTES_P>(pgm_read_ptr(
-          &(controllerTypeStrings[ctype < PSCTRL_MAX ? static_cast<byte>(ctype)
+  if (!haveController) {
+    if (psx.begin()) {
+      Serial.println(F("Controller found!"));
+      delay(300);
+      if (!psx.enterConfigMode()) {
+        Serial.println(F("Cannot enter config mode"));
+      } else {
+        PsxControllerType ctype = psx.getControllerType();
+        PGM_BYTES_P cname = reinterpret_cast<PGM_BYTES_P>(pgm_read_ptr(&(
+            controllerTypeStrings[ctype < PSCTRL_MAX ? static_cast<byte>(ctype)
                                                      : PSCTRL_MAX])));
-      Serial.print(F("Controller Type is: "));
-      Serial.println(PSTR_TO_F(cname));
+        Serial.print(F("Controller Type is: "));
+        Serial.println(PSTR_TO_F(cname));
 
-      if (!psx.enableAnalogSticks()) {
-        Serial.println(F("Cannot enable analog sticks"));
+        if (!psx.enableAnalogSticks()) {
+          Serial.println(F("Cannot enable analog sticks"));
+        }
+
+        if (!psx.enableAnalogButtons()) {
+          Serial.println(F("Cannot enable analog buttons"));
+        }
+
+        if (!psx.exitConfigMode()) {
+          Serial.println(F("Cannot exit config mode"));
+        }
       }
 
-      if (!psx.enableAnalogButtons()) {
-        Serial.println(F("Cannot enable analog buttons"));
-      }
-
-      if (!psx.exitConfigMode()) {
-        Serial.println(F("Cannot exit config mode"));
-      }
+      haveController = true;
     }
-
-    haveController = true;
-  }
-} else {
-  if (!psx.read()) {
-    Serial.println(F("Controller lost :("));
-    haveController = false;
   } else {
-    updateCurrentState();
-    sendStateIfChanged();
+    if (!psx.read()) {
+      Serial.println(F("Controller lost :("));
+      haveController = false;
+    } else {
+      updateCurrentState();
+      sendStateIfChanged();
 
-    // // Optional: Debugging outputs
-    // fastDigitalWrite(PIN_BUTTONPRESS, !!psx.getButtonWord());
-    // dumpButtons(psx.getButtonWord());
+      // // Optional: Debugging outputs
+      // fastDigitalWrite(PIN_BUTTONPRESS, !!psx.getButtonWord());
+      // dumpButtons(psx.getButtonWord());
+    }
   }
-}
 
-delay(1000 / 60);  // 60 Hz update rate
+  delay(1000 / 60);  // 60 Hz update rate
 }
 #endif
 
@@ -410,6 +521,6 @@ void setup() {
 
 void loop() {
   receivePacket();
-  // controlsDecision();
+  controlsDecision();
 }
 #endif
