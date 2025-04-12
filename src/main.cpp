@@ -106,6 +106,8 @@ const char *const psxButtonNames[PSX_BUTTONS_NO] PROGMEM = {
 bool parking_Brake = false;
 int maximumSpeed = 0;  // Maximum speed of the car
 bool enableToggle = false;  // Toggle for enabling/disabling the car
+bool enableRightMotor = 0;  // Enable right motor
+bool enableLeftMotor = 0;  // Enable left motor
 
 /*TRANSMITTER & RECEIVER FUNCTIONS*/
 /*----------------------------------------------------------------------*/
@@ -229,68 +231,77 @@ void receivePacket() {
     // Deserialize into a struct
     memcpy(&currentState, buffer, sizeof(ControllerState));
 
-    // // Process the received state
-    // Serial.print(F("ButtonWord: "));
-    // Serial.print(currentState.buttonWord, HEX);
-    // Serial.print(F(" "));
-    // Serial.print(currentState.leftX);
-    // Serial.print(F(" "));
-    // Serial.print(currentState.leftY);
-    // Serial.print(F(" "));
-    // Serial.print(currentState.rightX);
-    // Serial.print(F(" "));
-    // Serial.println(currentState.rightY);
+    // Process the received state
+    Serial.print(F("ButtonWord: "));
+    Serial.print(currentState.buttonWord, HEX);
+    Serial.print(F(" "));
+    Serial.print(currentState.leftX);
+    Serial.print(F(" "));
+    Serial.print(currentState.leftY);
+    Serial.print(F(" "));
+    Serial.print(currentState.rightX);
+    Serial.print(F(" "));
+    Serial.println(currentState.rightY);
   }
 }
 
 void handleButtonPress(const String &buttonName) {
-  if (buttonName == "Select") {
-    // Perform action for Select button
+  if (buttonName == "Select") {                   // toggle tank mode
   } else if (buttonName == "Start") {
     Serial.println(F("Start button pressed!"));
     parking_Brake = true;
-  } else if (buttonName == "Up") {
+
+  } else if (buttonName == "Up") {                // Increase maximum speed
     Serial.println(F("Up button pressed!"));
     maximumSpeed += 25;
-  } else if (buttonName == "Down") {
+    Serial.print(F("Maximum Speed: "));
+    Serial.println(maximumSpeed);
+
+  } else if (buttonName == "Down") {              // Decrease maximum speed
     Serial.println(F("Down button pressed!"));
     maximumSpeed -= 25;
+    Serial.print(F("Maximum Speed: "));
+    Serial.println(maximumSpeed);
+
   } else if (buttonName == "Left") {
     Serial.println(F("Left button pressed!"));
-    // Perform action for Left button
+
   } else if (buttonName == "Right") {
     Serial.println(F("Right button pressed!"));
-    // Perform action for Right button
+
   } else if (buttonName == "Triangle") {
     Serial.println(F("Triangle button pressed!"));
-    // Perform action for Triangle button
-  } else if (buttonName == "Circle") {
+
+  } else if (buttonName == "Circle") {            // Parking brake
     Serial.println(F("Circle button pressed!"));
-    // Perform action for Circle button
-  } else if (buttonName == "Cross") {
+
+  } else if (buttonName == "Cross") {              
     Serial.println(F("Cross button pressed!"));
-    // Perform action for Cross button
-  } else if (buttonName == "Square") {
+
+  } else if (buttonName == "Square") {            // Realtime brake
     Serial.println(F("Square button pressed!"));
-    // Perform action for Square button
-  } else if (buttonName == "L1") {
+
+  } else if (buttonName == "L1") {                // Enable left motor
+    enableLeftMotor = 1;
     Serial.println(F("L1 button pressed!"));
-    // Perform action for L1 button
-  } else if (buttonName == "R1") {
+
+  } else if (buttonName == "R1") {                // Enable right motor
+    enableRightMotor = 1;
     Serial.println(F("R1 button pressed!"));
-    // Perform action for R1 button
+
   } else if (buttonName == "L2") {
     Serial.println(F("L2 button pressed!"));
-    // Perform action for L2 button
-  } else if (buttonName == "R2") {
+
+  } else if (buttonName == "R2") {                // Realtime Toggle Moter enable state      
     Serial.println(F("R2 button pressed!"));
+
     enableToggle = !enableToggle;
   } else if (buttonName == "L3") {
     Serial.println(F("L3 button pressed!"));
-    // Perform action for L3 button
+
   } else if (buttonName == "R3") {
     Serial.println(F("R3 button pressed!"));
-    // Perform action for R3 button
+
   } else {
     Serial.println(F("Unknown button pressed!"));
   }
@@ -403,7 +414,7 @@ void setup() {
     while (1);
   }
   rfm.setFrequency(915.0);
-  Serial.println("RFM95 initialized");
+  Serial.println("RFM95 initialized: TRANSMITTER");
 
   // Debug pins for having controller and button presses
   fastPinMode(PIN_BUTTONPRESS, OUTPUT);
@@ -493,7 +504,7 @@ void setup() {
     while (1);
   }
   rfm.setFrequency(915.0);
-  Serial.println("RFM95 initialized");
+  Serial.println("RFM95 initialized: RECEIVER");
 
   // Setup pins for BTS7960 Motor Driver
   pinMode(MOTORA_REN, OUTPUT);
