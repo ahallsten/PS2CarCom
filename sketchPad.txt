@@ -1,0 +1,73 @@
+const uint8_t NUM_BITS = 16;
+uint8_t outputPins[NUM_BITS] = {
+  2, 3, 4, 5, 6, 7, 8, 9,
+  10, 11, 12, 13, A0, A1, A2, A3
+};
+
+uint16_t inputState = 0b0000000000000000;  // Current input
+uint16_t previousState = 0;               // Last input for edge detection
+
+void setup() {
+  Serial.begin(9600);
+  for (int i = 0; i < NUM_BITS; i++) {
+    pinMode(outputPins[i], OUTPUT);
+  }
+}
+
+void loop() {
+  // Simulate or read your 16-bit input value here
+  inputState = readInput();  // e.g. from a sensor or serial
+
+  for (int bit = 0; bit < NUM_BITS; bit++) {
+    bool current = (inputState >> bit) & 0x01;
+    bool previous = (previousState >> bit) & 0x01;
+
+    if (!previous && current) {
+      onRisingEdge(bit);
+    } else if (previous && !current) {
+      onFallingEdge(bit);
+    }
+
+    onBitState(bit, current);  // always called
+
+    // Optionally write to an output pin
+    digitalWrite(outputPins[bit], current);
+  }
+
+  previousState = inputState;
+
+  delay(50); // adjust to your desired responsiveness
+}
+
+// Replace this with actual input logic
+uint16_t readInput() {
+  // Example: just increment for demo
+  static uint16_t fakeInput = 0;
+  fakeInput++;
+  return fakeInput;
+}
+
+// --- Custom Logic ---
+
+void onRisingEdge(uint8_t bit) {
+  Serial.print("Rising edge on bit "); Serial.println(bit);
+  // Example: special case for bit 3
+  if (bit == 3) {
+    // do something
+  }
+}
+
+void onFallingEdge(uint8_t bit) {
+  Serial.print("Falling edge on bit "); Serial.println(bit);
+  // Example: special case for bit 7
+  if (bit == 7) {
+    // do something else
+  }
+}
+
+void onBitState(uint8_t bit, bool state) {
+  // Optional: act on steady state (high or low)
+  if (bit == 12 && state) {
+    // bit 12 is HIGH
+  }
+}
