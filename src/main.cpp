@@ -5,8 +5,8 @@
 // #define TRANSMITTER
 #define RECEIVER
 
-#include <LibPrintf.h>
 #include <Adafruit_SleepyDog.h>
+#include <LibPrintf.h>
 #include <RH_RF95.h>
 #include <Wire.h>
 #include <avr/pgmspace.h>
@@ -243,6 +243,48 @@ const char *const controllerTypeStrings[PSCTRL_MAX + 1] PROGMEM = {
 #ifdef RECEIVER
 /*RECEIVER FUNCTIONS*/
 /*----------------------------------------------------------------------*/
+void onRisingEdge(uint8_t bit) {
+  Serial.print("Rising edge on bit ");
+  Serial.println(bit);
+  // Example: special case for bit 3
+  if (bit == 3) {
+    // do something
+  }
+}
+void onFallingEdge(uint8_t bit) {
+  Serial.print("Falling edge on bit ");
+  Serial.println(bit);
+  // Example: special case for bit 7
+  if (bit == 7) {
+    // do something else
+  }
+}
+void onBitState(uint8_t bit, bool state) {
+  char buffer[20];
+  sprintf(buffer, "Bit %d is %s", bit, state ? "HIGH" : "LOW");
+  
+  Serial.println(buffer);
+  // Optional: act on steady state (high or low)
+  if (bit == 12 && state) {
+    // do something when bit 12 is high
+  } 
+}
+void detectButtonWordStateChange(uint16_t buttonWord) {
+  uint16_t previousButtonWord;                        // Initialize to zero or previous state
+  const int NUM_BITS = 16;                                // Number of bits in the word
+  for (int bit = 0; bit < NUM_BITS; bit++) {
+    bool currentBit = (buttonWord >> bit) & 0x01;
+    bool previousBit = (previousButtonWord >> bit) & 0x01;
+
+    if (!previousBit && currentBit) {
+      onRisingEdge(bit);
+    } else if (previousBit && !currentBit) {
+      onFallingEdge(bit);
+    }
+    onBitState(bit, currentBit);  // always called
+  }
+  previousButtonWord = buttonWord;
+}
 void receivePacket() {
   if (rfm.available()) {
     uint8_t buffer[sizeof(ControllerState)];
@@ -373,7 +415,7 @@ void handleButtonPress(const String &buttonName) {
       Serial.println(F("FUCK!"));
       break;
   }
-  // if (buttonName == "Select") {                   // toggle tank mode
+  // if (buttonName == "Select") {                        // toggle tank mode
   // } else if (buttonName == "Start") {
   //   Serial.println(F("Start button pressed!"));
   //   parking_Brake = true;
@@ -422,13 +464,13 @@ void handleButtonPress(const String &buttonName) {
 
 void controlsDecision() {
   if (stateChanged(currentState, previousState)) {
-    buttonWordToDecipher = currentState.buttonWord;
-    previousState = currentState;
-    getButtonName(buttonWordToDecipher);
-    FlashStr buttonName = F("");
-    Serial.print(buttonName);
-    Serial.print(F(" "));
-    handleButtonPress(buttonName);
+    previousState = currentState;                         // Update the previous state
+    detectButtonWordStateChange(currentState.buttonWord); // Detect button word state change
+    // getButtonName(buttonWordToDecipher);
+    // FlashStr buttonName = F("");
+    // Serial.print(buttonName);
+    // Serial.print(F(" "));
+    // handleButtonPress(buttonName);
 
     // Set the motor direction and speed based on the joystick values
     int pwmValue = 0;
