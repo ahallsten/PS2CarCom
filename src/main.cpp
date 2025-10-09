@@ -118,7 +118,7 @@ const char *const controllerTypeStrings[PSCTRL_MAX + 1] PROGMEM = {
 
 /*RECIEVER OBJECTS AND VARIABLES*/
 /*----------------------------------------------------------------------*/
-#ifdef RECEIVER
+// #ifdef RECEIVER
 // Global variables for the controlling the Motors and steering
 bool parking_Brake = 0;
 bool enableToggle = 0;     // Toggle for enabling/disabling the car
@@ -139,7 +139,7 @@ byte steerPwmValue = 0;    // PWM value for the steering servo
 int maximumSpeed = 0;      // Maximum speed of the car
 int minimumSpeed = 25;     // Minimum speed of the car
 int zeroCalibration = 0;   // Zero calibration for the steering servo
-#endif
+// #endif
 
 /*TRANSMITTER & RECEIVER FUNCTIONS*/
 /*----------------------------------------------------------------------*/
