@@ -10,21 +10,24 @@
 
 class BTS7960
 {
-  public:
-    BTS7960(uint8_t RPWM,uint8_t LPWM,uint8_t L_EN,uint8_t R_EN, uint8_t L_IS, uint8_t R_IS);
-    void setSpeed( int16_t pwm);
-    void cwBrake();
-    void ccwBrake();
-    void enable();
-    void disable();
-    void stop();
+public:
+  BTS7960(uint8_t RPWM, uint8_t LPWM, uint8_t L_EN, uint8_t R_EN, uint8_t L_IS, uint8_t R_IS);
+  void drive(int16_t pwm);
+  void begin();
+  void cwBrake();
+  void ccwBrake();
+  void enable();
+  void brake();
+  void coast();
+  void disable();
+  void stop();
 
-  private:
-    uint8_t _RPWM;
-    uint8_t _LPWM;
-    uint8_t _L_EN;
-    uint8_t _R_EN;
-    uint8_t _L_IS;
-    uint8_t _R_IS;
+private:
+  uint8_t _RPWM;
+  uint8_t _LPWM;
+  uint8_t _L_EN;
+  uint8_t _R_EN;
+  uint8_t _L_IS;
+  uint8_t _R_IS;
 };
 #endif
