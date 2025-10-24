@@ -10,6 +10,7 @@
 #include <RH_RF95.h>
 #include <Wire.h>
 #include <avr/pgmspace.h>
+#include <Adafruit_MCP23X17.h>
 #include "BTS7960.h"
 #include "Joystick.h"
 #include "MotorDriver.h"
@@ -30,33 +31,34 @@ typedef const byte* PGM_BYTES_P;
 /*----------------------------------------------------------------------*/
 #ifdef RECEIVER
 // Motor FL (Front Left) Pin Assignments
-#define MOTOR_FL_RPWM 10 // 
-#define MOTOR_FL_LPWM 11 // 
-#define MOTOR_FL_REN A4
-#define MOTOR_FL_LEN A5
+#define MOTOR_FL_RPWM 12
+#define MOTOR_FL_LPWM 13
+#define MOTOR_FL_REN 0 // mcp portB 0 or pin 1
+#define MOTOR_FL_LEN 1 // mcp portB 1 or pin 2
 #define MOTOR_FL_RIS A0
 #define MOTOR_FL_LIS A1
 // Motor FR (Front Right) Pin Assignments
-#define MOTOR_FR_RPWM 6 //
-#define MOTOR_FR_LPWM 9 // 
-#define MOTOR_FR_REN 13
-#define MOTOR_FR_LEN 12
+#define MOTOR_FR_RPWM 11
+#define MOTOR_FR_LPWM 10
+#define MOTOR_FR_REN 2 // mcp portB 2 or pin 3
+#define MOTOR_FR_LEN 3 // mcp portB 3 or pin 4
 #define MOTOR_FR_RIS A2
 #define MOTOR_FR_LIS A3
-// Motor FR (Front Right) Pin Assignments
-#define MOTOR_RL_RPWM 6 //
-#define MOTOR_RL_LPWM 9 // 
-#define MOTOR_RL_REN 13
-#define MOTOR_RL_LEN 12
-#define MOTOR_RL_RIS A2
-#define MOTOR_RL_LIS A3
-// Motor FR (Front Right) Pin Assignments
-#define MOTOR_RR_RPWM 6 //
-#define MOTOR_RR_LPWM 9 // 
-#define MOTOR_RR_REN 13
-#define MOTOR_RR_LEN 12
-#define MOTOR_RR_RIS A2
-#define MOTOR_RR_LIS A3
+// Motor RL (Rear Left) Pin Assignments
+#define MOTOR_RL_RPWM 7 // mcp portA or pin 28
+#define MOTOR_RL_LPWM 6 // mcp portA or pin 27
+#define MOTOR_RL_REN 4 // mcp portB or pin 5
+#define MOTOR_RL_LEN 5 // mcp portB or pin 6
+#define MOTOR_RL_RIS A4
+#define MOTOR_RL_LIS A5
+// Motor RR (Rear Right) Pin Assignments
+#define MOTOR_RR_RPWM 5 // mcp portA or pin 26
+#define MOTOR_RR_LPWM 4 // mcp portA or pin 25
+#define MOTOR_RR_REN 6 // mcp portB or pin 7 
+#define MOTOR_RR_LEN 7 // mcp portB or pin 8
+#define MOTOR_RR_RIS 6 
+#define MOTOR_RR_LIS 9
+
 
 // Other Pin Assignments
 #define STEER_PWM 3
@@ -68,6 +70,8 @@ BTS7960 mRL(MOTOR_RL_RPWM, MOTOR_RL_LPWM, MOTOR_RL_LEN, MOTOR_RL_REN, MOTOR_RL_R
 BTS7960 mRR(MOTOR_RR_RPWM, MOTOR_RR_LPWM, MOTOR_RR_LEN, MOTOR_RR_REN, MOTOR_RR_RIS, MOTOR_RR_LIS);
 // BTS7960 mRL.();
 // BTS7960 mRR.();
+
+Adafruit_MCP23X17 mcp;
 #endif
 
 /*TRANSMITTER & RECIEVER DEFINITIONS*/
@@ -673,6 +677,24 @@ void setup()
     // Initialize serial monitor
     Serial.begin(115200);
 
+    if (!mcp.begin_I2C()) {
+        Serial.println("mcp begin error.");
+        while (1);
+    }
+    mcp.pinMode(MOTOR_FR_REN, OUTPUT);
+    mcp.pinMode(MOTOR_FR_LEN, OUTPUT);
+    mcp.pinMode(MOTOR_FL_LEN, OUTPUT);
+    mcp.pinMode(MOTOR_FL_REN, OUTPUT);
+    mcp.pinMode(MOTOR_RL_RPWM, OUTPUT);
+    mcp.pinMode(MOTOR_RL_LPWM, OUTPUT);
+    mcp.pinMode(MOTOR_RL_REN, OUTPUT);
+    mcp.pinMode(MOTOR_RL_LEN, OUTPUT);
+    mcp.pinMode(MOTOR_RR_RPWM, OUTPUT);
+    mcp.pinMode(MOTOR_RR_LPWM, OUTPUT);
+    mcp.pinMode(MOTOR_RR_REN, OUTPUT);
+    mcp.pinMode(MOTOR_RR_LEN, OUTPUT);
+
+
     // Initialize RFM95
     pinMode(RFM95_RST, OUTPUT);
     digitalWrite(RFM95_RST, HIGH);
@@ -680,8 +702,7 @@ void setup()
     if (!rfm.init())
     {
         Serial.println("RFM95 initialization failed");
-        while (1)
-            ;
+        while (1);
     }
     rfm.setFrequency(915.0);
     Serial.println("RFM95 initialized: RECEIVER");
