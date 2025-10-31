@@ -6,7 +6,6 @@
 #ifndef BTS7960_h
 #define BTS7960_h
 
-#pragma once
 #include "Arduino.h"
 
 class BTS7960

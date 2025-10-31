@@ -1,4 +1,6 @@
-#pragma once
+#ifndef SoftwarePWM_h
+#define SoftwarePWM_h
+
 #include <Arduino.h>
 
 struct PWMChannel {
@@ -37,3 +39,4 @@ private:
   PWMChannel *_ch;
   uint8_t _max;
 };
+#endif

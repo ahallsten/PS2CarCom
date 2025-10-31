@@ -1,4 +1,6 @@
-#pragma once
+#ifndef utils_h
+#define utils_h
+
 #include <Arduino.h>
 
 // Forward declarations of structs and global variables
@@ -27,3 +29,4 @@ extern bool parking_Brake;
 // ---------- Function declarations ----------
 void printControllerStruct();
 void printControlVariables();
+#endif

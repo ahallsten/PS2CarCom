@@ -14,6 +14,7 @@
 #include "BTS7960.h"
 #include "Joystick.h"
 #include "AxisMap.h"
+#include "utils.h"
 typedef const __FlashStringHelper* FlashStr;
 typedef const byte* PGM_BYTES_P;
 #define PSTR_TO_F(s) reinterpret_cast<const __FlashStringHelper *>(s)
@@ -21,6 +22,7 @@ typedef const byte* PGM_BYTES_P;
 /*TRANSMITTER DEFINITIONS*/
 /*----------------------------------------------------------------------*/
 #ifdef TRANSMITTER
+
 #include <DigitalIO.h>
 #include <PsxControllerBitBang.h>
 #include <SPI.h>
@@ -79,15 +81,6 @@ BTS7960 mRR(MOTOR_RR_RPWM, MOTOR_RR_LPWM, MOTOR_RR_LEN, MOTOR_RR_REN, MOTOR_RR_R
 // Radio configuration parameters and statements
 #define RF95_FREQ 915.0
 RH_RF95 rfm(RFM95_CS, RFM95_INT);
-
-struct ControllerState
-{
-    uint16_t buttonWord; // Stores the pressed buttons as a bitmask
-    uint8_t leftX;       // Left joystick X-axis
-    uint8_t leftY;       // Left joystick Y-axis
-    uint8_t rightX;      // Right joystick X-axis
-    uint8_t rightY;      // Right joystick Y-axis
-};
 
 ControllerState currentState = { 0, 0, 0, 0, 0 };
 ControllerState previousState = { 0, 0, 0, 0, 0 };
@@ -201,43 +194,6 @@ bool stateChanged(const ControllerState& current,
     return current.buttonWord != previous.buttonWord ||
         current.leftX != previous.leftX || current.leftY != previous.leftY ||
         current.rightX != previous.rightX || current.rightY != previous.rightY;
-}
-// Function to print the current state of the controller
-void printControllerStruct()
-{
-    Serial.print(F("ButtonWord: "));
-    printf("%016b", currentState.buttonWord);
-    Serial.print(F("| LX: "));
-    Serial.print(currentState.leftX);
-    Serial.print(F("| LY: "));
-    Serial.print(currentState.leftY);
-    Serial.print(F("| RX: "));
-    Serial.print(currentState.rightX);
-    Serial.print(F("| RY: "));
-    Serial.println(currentState.rightY);
-}
-void printControlVariables()
-{
-    Serial.print(F("| pwmLY "));
-    Serial.print(pwmValueLY);
-    Serial.print(F("| pwmRY "));
-    Serial.print(pwmValueRY);
-    Serial.print(F("| pwmSTR "));
-    Serial.print(steerPwmValue);
-    Serial.print(F("| ENAF "));
-    Serial.print(enableAMotorFwd);
-    Serial.print(F("| ENAR "));
-    Serial.print(enableAMotorRev);
-    Serial.print(F("| ENBF "));
-    Serial.print(enableBMotorFwd);
-    Serial.print(F("| ENBR "));
-    Serial.print(enableBMotorRev);
-    Serial.print(F("| EN: "));
-    Serial.print(enableToggle ? F("ON") : F("OFF"));
-    Serial.print(F("| T_MD: "));
-    Serial.print(tankMode ? F("ON") : F("OFF"));
-    Serial.print(F("| p_Brk: "));
-    Serial.println(parking_Brake ? F("ON") : F("OFF"));
 }
 
 /*TRANSMITTER FUNCTIONS*/
