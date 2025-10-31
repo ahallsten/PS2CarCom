@@ -1,6 +1,7 @@
 #ifndef JOYSTICK_H
 #define JOYSTICK_H
 
+#pragma once
 #include <Arduino.h>
 #include "AxisMap.h"
 
