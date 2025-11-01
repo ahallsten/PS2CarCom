@@ -23,12 +23,14 @@ void printControllerStruct()
 // Prints PWM and control variable states
 void printControlVariables()
 {
-    Serial.print(F("| pwmLY "));
-    Serial.print(pwmValueLY);
+    Serial.print(F(" | pwmLY "));
+    Serial.print(leftYPWM);
+    Serial.print(F(" | pwmLX "));
+    Serial.print(leftXPWM);
     Serial.print(F(" | pwmRY "));
-    Serial.print(pwmValueRY);
+    Serial.print(rightYPWM);
     Serial.print(F(" | pwmSTR "));
-    Serial.print(steerPwmValue);
+    Serial.print(rightXPWM);
 
     Serial.print(F(" | ENAF "));
     Serial.print(enableAMotorFwd);

@@ -15,9 +15,10 @@ struct ControllerState {
 
 // These variables are defined in your main file (or elsewhere)
 extern ControllerState currentState;
-extern uint8_t pwmValueLY;
-extern uint8_t pwmValueRY;
-extern uint8_t steerPwmValue;
+extern int16_t leftYPWM;
+extern int16_t leftXPWM;
+extern int16_t rightYPWM;
+extern int16_t rightXPWM;
 extern bool enableAMotorFwd;
 extern bool enableAMotorRev;
 extern bool enableBMotorFwd;

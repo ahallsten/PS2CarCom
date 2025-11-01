@@ -10,11 +10,11 @@
 #include <RH_RF95.h>
 #include <Wire.h>
 #include <avr/pgmspace.h>
-// #include <Adafruit_MCP23X17.h>
+#include <Adafruit_MCP23X17.h>
 #include "BTS7960.h"
 #include "Joystick.h"
 #include "AxisMap.h"
-#include "utils.h"
+// #include "utils.h"
 typedef const __FlashStringHelper* FlashStr;
 typedef const byte* PGM_BYTES_P;
 #define PSTR_TO_F(s) reinterpret_cast<const __FlashStringHelper *>(s)
@@ -68,7 +68,7 @@ BTS7960 mFR(MOTOR_FR_RPWM, MOTOR_FR_LPWM, MOTOR_FR_LEN, MOTOR_FR_REN, MOTOR_FR_R
 BTS7960 mRL(MOTOR_RL_RPWM, MOTOR_RL_LPWM, MOTOR_RL_LEN, MOTOR_RL_REN, MOTOR_RL_RIS, MOTOR_RL_LIS);
 BTS7960 mRR(MOTOR_RR_RPWM, MOTOR_RR_LPWM, MOTOR_RR_LEN, MOTOR_RR_REN, MOTOR_RR_RIS, MOTOR_RR_LIS);
 
-// Adafruit_MCP23X17 mcp;
+Adafruit_MCP23X17 mcp;
 #endif
 
 /*TRANSMITTER & RECIEVER DEFINITIONS*/
@@ -81,6 +81,14 @@ BTS7960 mRR(MOTOR_RR_RPWM, MOTOR_RR_LPWM, MOTOR_RR_LEN, MOTOR_RR_REN, MOTOR_RR_R
 // Radio configuration parameters and statements
 #define RF95_FREQ 915.0
 RH_RF95 rfm(RFM95_CS, RFM95_INT);
+
+struct ControllerState {
+    uint16_t buttonWord;
+    uint8_t leftX;
+    uint8_t leftY;
+    uint8_t rightX;
+    uint8_t rightY;
+};
 
 ControllerState currentState = { 0, 0, 0, 0, 0 };
 ControllerState previousState = { 0, 0, 0, 0, 0 };
@@ -160,6 +168,11 @@ byte steerPwmValue = 0;   // PWM value for the steering servo
 int maximumSpeed = 0;     // Maximum speed of the car
 int minimumSpeed = 25;    // Minimum speed of the car
 int zeroCalibration = 0;  // Zero calibration for the steering servo
+
+int16_t leftYPWM;
+int16_t leftXPWM;
+int16_t rightYPWM;
+int16_t rightXPWM;
 // #endif
 
 /*TRANSMITTER & RECEIVER FUNCTIONS*/
@@ -487,6 +500,52 @@ void detectButtonWordStateChange(uint16_t buttonWord)
     }
     previousButtonWord = buttonWord; // Update the previous state
 }
+
+void printControllerStruct()
+{
+    Serial.print(F("ButtonWord: "));
+    // Arduino printf() doesn’t support %b (binary), so we print manually:
+    for (int i = 15; i >= 0; i--)
+    {
+        Serial.print(bitRead(currentState.buttonWord, i));
+    }
+
+    Serial.print(F(" | LX: "));
+    Serial.print(currentState.leftX);
+    Serial.print(F(" | LY: "));
+    Serial.print(currentState.leftY);
+    Serial.print(F(" | RX: "));
+    Serial.print(currentState.rightX);
+    Serial.print(F(" | RY: "));
+    Serial.println(currentState.rightY);
+}
+void printControlVariables()
+{
+    Serial.print(F(" | pwmLY "));
+    Serial.print(leftYPWM);
+    Serial.print(F(" | pwmLX "));
+    Serial.print(leftXPWM);
+    Serial.print(F(" | pwmRY "));
+    Serial.print(rightYPWM);
+    Serial.print(F(" | pwmSTR "));
+    Serial.print(rightXPWM);
+
+    Serial.print(F(" | ENAF "));
+    Serial.print(enableAMotorFwd);
+    Serial.print(F(" | ENAR "));
+    Serial.print(enableAMotorRev);
+    Serial.print(F(" | ENBF "));
+    Serial.print(enableBMotorFwd);
+    Serial.print(F(" | ENBR "));
+    Serial.print(enableBMotorRev);
+
+    Serial.print(F(" | EN: "));
+    Serial.print(enableToggle ? F("ON") : F("OFF"));
+    Serial.print(F(" | T_MD: "));
+    Serial.print(tankMode ? F("ON") : F("OFF"));
+    Serial.print(F(" | p_Brk: "));
+    Serial.println(parking_Brake ? F("ON") : F("OFF"));
+}
 void receivePacket()
 {
     if (rfm.available())
@@ -504,26 +563,7 @@ void receivePacket()
         printControllerStruct();
     }
 }
-void writePins()
-{
-    // Write the PWM value to the desired pin
-    analogWrite(STEER_PWM, steerPwmValue);
-    // if (tankMode)
-    // { // Control A Motor: Left Joystick Y-axis, B Motor: Right
-    // }
-    // else
-    // { // Control both motors with the left joystick Y-axis
-    // }
-}
-// byte pwmOutput(byte stickValue, byte deadHigh, byte deadLow) {
-//   if (stickValue < deadLow) {
-//     return map(stickValue, deadLow, 0, 0, 255);
-//   } else if (stickValue > deadHigh) {
-//     return map(stickValue, deadHigh, 255, 0, 255);
-//   } else {
-//     return pwmValue;  // Dead zone: set PWM to 0
-//   }
-// }
+
 void controlsDecision()
 {
     if (stateChanged(currentState, previousState))
@@ -531,178 +571,171 @@ void controlsDecision()
         previousState = currentState; // Update the previous state
         detectButtonWordStateChange(currentState.buttonWord); // Detect button word state change
 
-    //     // Mapping profiles
-    //     const AxisMap leftYMap = { 110, 110, 0, 145, 145, 255, 0, 255 };
-    //     // const AxisMap leftXMap = { 110, 110, 0, 145, 145, 255, 0, 255 };
-    //     // const AxisMap rightYMap = { 106, 106, 0, 133, 133, 255, 0, 255 };
-    //     const AxisMap rightXMap = { 106, 106, 0, 133, 133, 255, 0, 255 };
+        // Mapping profiles
+        const AxisMap leftYMap = { 110, 110, 0, 145, 145, 255, 0, 255 };
+        const AxisMap leftXMap = { 90, 90, 0, 145, 145, 255, 0, 255 };
+        const AxisMap rightYMap = { 105, 105, 0, 133, 133, 255, 0, 255 };
+        const AxisMap rightXMap = { 105, 105, 0, 135, 135, 255, 0, 255 };
 
-    //     int16_t leftPWM = mapAxisSigned(currentState.leftY, leftYMap);
-    //     // int16_t leftPWM = mapAxisSigned(currentState.leftX, leftXMap);
-    //     // int16_t rightPWM = mapAxisSigned(currentState.rightY, rightYMap);
-    //     int16_t rightPWM = mapAxisSigned(currentState.rightX, rightXMap);
+        leftYPWM = mapAxisSigned(currentState.leftY, leftYMap);
+        leftXPWM = mapAxisSigned(currentState.leftX, leftXMap);
+        rightYPWM = mapAxisSigned(currentState.rightY, rightYMap);
+        rightXPWM = mapAxisSigned(currentState.rightX, rightXMap);
 
-    //     if (parking_Brake)
-    //     {
-    //         pwmValueLY = 0;          // Set PWM to 0 when parking brake is on
-    //         pwmValueRY = 0;          // Set PWM to 0 when parking brake is on
-    //         enableAMotorFwd = false; // Disable left motor forward
-    //         enableBMotorFwd = false; // Disable right motor forward
-    //         enableAMotorRev = false; // Disable left motor reverse
-    //         enableBMotorRev = false; // Disable right motor reverse
-    //     }
-    //     else
-    //     {
-    //         // restrict the max speed set to keep the kids safe
-    //         map(pwmValueLY, 0, 255, 0, maximumSpeed);
-    //         map(pwmValueRY, 0, 255, 0, maximumSpeed);
-    //     }
-
-    //     if (enableToggle)
-    //     {
-    //         mFL.enable();
-    //         mFR.enable();
-    //         mRL.enable();
-    //         mRR.enable();
-    //     }
-    //     else
-    //     {
-    //         mFL.brake();
-    //         mRL.brake();
-    //         mRR.brake();
-    //         mFR.brake();
-    //     }
-
-    //     // writePins(); // Write the motor control pins based on the joystick values
-    //     mFL.drive(leftPWM);
-    //     mFR.drive(leftPWM);
-    //     mRL.drive(leftPWM);
-    //     mRR.drive(leftPWM);
-    // }
-        // Left Joystick Y-> Up:0 Down:255 control both motor speeds or just the
-        if (currentState.leftY < 110)
-        {   
-            pwmValueLY = map(currentState.leftY, 110, 0, 0, 255);
-            mFL.drive(pwmValueLY);
-            mFR.drive(pwmValueLY);
-            leftYForward = true;
-        }
-        else if (currentState.leftY > 145)
+        if (parking_Brake)
         {
-            pwmValueLY = map(currentState.leftY, 145, 255, 0, 255);
-            leftYForward = false;
+            Serial.println("braking motors");
+            mFL.brake();
+            mRL.brake();
+            mRR.brake();
+            mFR.brake();
+        }
+        else {
+            Serial.println("driving motors");
+            mFL.drive(leftYPWM);
+            mFR.drive(leftYPWM);
+            mRL.drive(leftYPWM);
+            mRR.drive(leftYPWM);
+        }
+
+        if (enableToggle)
+        {
+            Serial.println("toggle off");
+            mFL.enable();
+            mFR.enable();
+            mRL.enable();
+            mRR.enable();
         }
         else
         {
-            pwmValueLY = 0; // Dead zone: set PWM to 0
+            mFL.coast();
+            mFR.coast();
+            mRL.coast();
+            mRR.coast();
         }
+        // analogWrite(STEER_PWM, rightXPWM);
+        // Serial.println("finished decision");
 
-        // Left Joystick X-> Left:0 Right:255 Reserved for future use
+
+        // // Left Joystick Y-> Up:0 Down:255 control both motor speeds or just the
+        // if (currentState.leftY < 110)
+        // {
+        //     pwmValueLY = map(currentState.leftY, 110, 0, 0, 255);
+        //     leftYForward = true;
+        // }
+        // else if (currentState.leftY > 145)
+        // {
+        //     pwmValueLY = map(currentState.leftY, 145, 255, 0, 255);
+        //     leftYForward = false;
+        // }
+        // else
+        // {
+        //     pwmValueLY = 0; // Dead zone: set PWM to 0
+        // }
+
+        // // Left Joystick X-> Left:0 Right:255 Reserved for future use
         // if (currentState.leftX < 90) {
         //   pwmValueLX = map(currentState.leftX, 90, 0, 0, 255);
-        //   forward = true;
         // } else if (currentState.leftX > 145) {
         //   pwmValueLX = map(currentState.leftX, 145, 255, 0, 255);
-        //   forward = false;
         // } else {
         //   pwmValueLX = 0;  // Dead zone: set PWM to 0
         // }
 
-        // Right Joystick Y-> Up:0 Down:255 control for right motor speeds in tank
-        // mode
-        if (currentState.rightY < 106)
-        {
-            pwmValueRY = map(currentState.rightY, 106, 0, 0, 255);
-            rightYForward = true;
-        }
-        else if (currentState.rightY > 133)
-        {
-            pwmValueRY = map(currentState.rightY, 133, 255, 0, 255);
-            rightYForward = false;
-        }
-        else
-        {
-            pwmValueRY = 0; // Dead zone: set PWM to 0
-        }
+        // // Right Joystick Y-> Up:0 Down:255 control for right motor speeds in tank
+        // // mode
+        // if (currentState.rightY < 106)
+        // {
+        //     pwmValueRY = map(currentState.rightY, 106, 0, 0, 255);
+        //     rightYForward = true;
+        // }
+        // else if (currentState.rightY > 133)
+        // {
+        //     pwmValueRY = map(currentState.rightY, 133, 255, 0, 255);
+        //     rightYForward = false;
+        // }
+        // else
+        // {
+        //     pwmValueRY = 0; // Dead zone: set PWM to 0
+        // }
 
-        // Right Joystick X-> Left:0 Right:255 to control the steering Servo
-        if (currentState.rightX > 140)
-        {
-            steerPwmValue = map(currentState.rightX, 135, 255, 0, 255);
-        }
-        else if (currentState.rightX < 110)
-        {
-            steerPwmValue = map(currentState.rightX, 105, 0, 0, 255);
-        }
-        else
-        {
-            steerPwmValue = 0; // Dead zone: set PWM to 0
-        }
+        // // Right Joystick X-> Left:0 Right:255 to control the steering Servo
+        // if (currentState.rightX > 140)
+        // {
+        //     steerPwmValue = map(currentState.rightX, 135, 255, 0, 255);
+        // }
+        // else if (currentState.rightX < 110)
+        // {
+        //     steerPwmValue = map(currentState.rightX, 105, 0, 0, 255);
+        // }
+        // else
+        // {
+        //     steerPwmValue = 0; // Dead zone: set PWM to 0
+        // }
 
-        if (parking_Brake)
-        {
-            pwmValueLY = 0;          // Set PWM to 0 when parking brake is on
-            pwmValueRY = 0;          // Set PWM to 0 when parking brake is on
-            enableAMotorFwd = false; // Disable left motor forward
-            enableBMotorFwd = false; // Disable right motor forward
-            enableAMotorRev = false; // Disable left motor reverse
-            enableBMotorRev = false; // Disable right motor reverse
-        }
-        else
-        {
-            // pwmValueLY = constrain(pwmValueLY, minimumSpeed, maximumSpeed);
-            // pwmValueRY = constrain(pwmValueRY, minimumSpeed, maximumSpeed);
-            map(pwmValueLY, 0, 255, 0, maximumSpeed); // Map the PWM value to the maximum speed
-            map(pwmValueRY, 0, 255, 0, maximumSpeed); // Map the PWM value to the maximum speed
-        }
-        if (enableToggle)
-        {
-            if (leftYForward)
-            {
-                enableAMotorFwd = true;  // Enable A motor forward
-                enableBMotorFwd = true;  // Enable B motor forward
-                enableAMotorRev = false; // Disable A motor reverse
-                enableBMotorRev = false; // Disable B motor reverse
-            }
-            else
-            {
-                enableAMotorFwd = false; // Disable A motor forward
-                enableBMotorFwd = false; // Disable B motor forward
-                enableAMotorRev = true;  // Enable A motor reverse
-                enableBMotorRev = true;  // Enable B motor reverse
-            }
-        }
-        else
-        {
-            enableAMotorFwd = false; // Disable A motor forward
-            enableBMotorFwd = false; // Disable B motor forward
-            enableAMotorRev = false; // Disable A motor reverse
-            enableBMotorRev = false; // Disable B motor reverse
-        }
-        if (tankMode)
-        {
-            if (currentState.leftY < 110)
-            {
-                enableAMotorFwd = true;  // Enable LEFT motor forward
-                enableAMotorRev = false; // Disable LEFT motor reverse
-            }
-            else if (currentState.leftY > 145)
-            {
-                enableAMotorFwd = false; // Disable LEFT motor forward
-                enableAMotorRev = true;  // Enable LEFT motor reverse
-            }
-            if (currentState.rightY < 106)
-            {
-                enableBMotorFwd = true;  // Disable RIGHT motor forward
-                enableBMotorRev = false; // Enable RIGHT motor reverse
-            }
-            else if (currentState.rightY > 133)
-            {
-                enableBMotorFwd = false; // Enable RIGHT motor forward
-                enableBMotorRev = true;  // Disable RIGHT motor reverse
-            }
-        }
-        writePins(); // Write the motor control pins based on the joystick values
+        // if (parking_Brake)
+        // {
+        //     pwmValueLY = 0;          // Set PWM to 0 when parking brake is on
+        //     pwmValueRY = 0;          // Set PWM to 0 when parking brake is on
+        //     enableAMotorFwd = false; // Disable left motor forward
+        //     enableBMotorFwd = false; // Disable right motor forward
+        //     enableAMotorRev = false; // Disable left motor reverse
+        //     enableBMotorRev = false; // Disable right motor reverse
+        // }
+        // else
+        // {
+        //     // pwmValueLY = constrain(pwmValueLY, minimumSpeed, maximumSpeed);
+        //     // pwmValueRY = constrain(pwmValueRY, minimumSpeed, maximumSpeed);
+        //     map(pwmValueLY, 0, 255, 0, maximumSpeed); // Map the PWM value to the maximum speed
+        //     map(pwmValueRY, 0, 255, 0, maximumSpeed); // Map the PWM value to the maximum speed
+        // }
+        // if (enableToggle)
+        // {
+        //     if (leftYForward)
+        //     {
+        //         enableAMotorFwd = true;  // Enable A motor forward
+        //         enableBMotorFwd = true;  // Enable B motor forward
+        //         enableAMotorRev = false; // Disable A motor reverse
+        //         enableBMotorRev = false; // Disable B motor reverse
+        //     }
+        //     else
+        //     {
+        //         enableAMotorFwd = false; // Disable A motor forward
+        //         enableBMotorFwd = false; // Disable B motor forward
+        //         enableAMotorRev = true;  // Enable A motor reverse
+        //         enableBMotorRev = true;  // Enable B motor reverse
+        //     }
+        // }
+        // else
+        // {
+        //     enableAMotorFwd = false; // Disable A motor forward
+        //     enableBMotorFwd = false; // Disable B motor forward
+        //     enableAMotorRev = false; // Disable A motor reverse
+        //     enableBMotorRev = false; // Disable B motor reverse
+        // }
+        // if (tankMode)
+        // {
+        //     if (currentState.leftY < 110)
+        //     {
+        //         enableAMotorFwd = true;  // Enable LEFT motor forward
+        //         enableAMotorRev = false; // Disable LEFT motor reverse
+        //     }
+        //     else if (currentState.leftY > 145)
+        //     {
+        //         enableAMotorFwd = false; // Disable LEFT motor forward
+        //         enableAMotorRev = true;  // Enable LEFT motor reverse
+        //     }
+        //     if (currentState.rightY < 106)
+        //     {
+        //         enableBMotorFwd = true;  // Disable RIGHT motor forward
+        //         enableBMotorRev = false; // Enable RIGHT motor reverse
+        //     }
+        //     else if (currentState.rightY > 133)
+        //     {
+        //         enableBMotorFwd = false; // Enable RIGHT motor forward
+        //         enableBMotorRev = true;  // Disable RIGHT motor reverse
+        //     }
+        // }
     }
 }
 #endif
@@ -756,25 +789,30 @@ void setup()
 {
     // Initialize serial monitor
     Serial.begin(115200);
-    
-    Serial.println("starting");
+    while (!Serial) {
+        ; // Do nothing, just wait
+    }
 
-    // if (!mcp.begin_I2C()) {
-    //     Serial.println("mcp begin error.");
-    //     while (1);
-    // }
-    // mcp.pinMode(MOTOR_FR_REN, OUTPUT);
-    // mcp.pinMode(MOTOR_FR_LEN, OUTPUT);
-    // mcp.pinMode(MOTOR_FL_LEN, OUTPUT);
-    // mcp.pinMode(MOTOR_FL_REN, OUTPUT);
-    // mcp.pinMode(MOTOR_RL_RPWM, OUTPUT);
-    // mcp.pinMode(MOTOR_RL_LPWM, OUTPUT);
-    // mcp.pinMode(MOTOR_RL_REN, OUTPUT);
-    // mcp.pinMode(MOTOR_RL_LEN, OUTPUT);
-    // mcp.pinMode(MOTOR_RR_RPWM, OUTPUT);
-    // mcp.pinMode(MOTOR_RR_LPWM, OUTPUT);
-    // mcp.pinMode(MOTOR_RR_REN, OUTPUT);
-    // mcp.pinMode(MOTOR_RR_LEN, OUTPUT);
+    Serial.println("starting mcp");
+
+    if (!mcp.begin_I2C()) {
+        Serial.println("mcp begin error.");
+        while (1){
+            Serial.println("mcp error");
+        }
+    }
+    mcp.pinMode(MOTOR_FR_REN, OUTPUT);
+    mcp.pinMode(MOTOR_FR_LEN, OUTPUT);
+    mcp.pinMode(MOTOR_FL_LEN, OUTPUT);
+    mcp.pinMode(MOTOR_FL_REN, OUTPUT);
+    mcp.pinMode(MOTOR_RL_RPWM, OUTPUT);
+    mcp.pinMode(MOTOR_RL_LPWM, OUTPUT);
+    mcp.pinMode(MOTOR_RL_REN, OUTPUT);
+    mcp.pinMode(MOTOR_RL_LEN, OUTPUT);
+    mcp.pinMode(MOTOR_RR_RPWM, OUTPUT);
+    mcp.pinMode(MOTOR_RR_LPWM, OUTPUT);
+    mcp.pinMode(MOTOR_RR_REN, OUTPUT);
+    mcp.pinMode(MOTOR_RR_LEN, OUTPUT);
 
     Serial.println("mcp initialized");
 
@@ -785,7 +823,9 @@ void setup()
     if (!rfm.init())
     {
         Serial.println("RFM95 initialization failed");
-        while (1);
+        while (1){
+            Serial.println("RFM9x Error");
+        }
     }
     rfm.setFrequency(915.0);
     Serial.println("RFM95 initialized: RECEIVER");

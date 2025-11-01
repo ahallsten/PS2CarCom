@@ -16,12 +16,12 @@
 struct AxisMap {
   uint8_t low_dead;  /**< @brief The y-coordinate of the point. */
   uint8_t low_from;  /**< @brief The y-coordinate of the point. */
-  uint8_t low_to;  /**< @brief The y-coordinate of the point. */
+  uint8_t low_to;    /**< @brief The y-coordinate of the point. */
   uint8_t high_dead; /**< @brief The y-coordinate of the point. */
   uint8_t high_from; /**< @brief The y-coordinate of the point. */
-  uint8_t high_to; /**< @brief The y-coordinate of the point. */
-  uint8_t out_min; /**< @brief The y-coordinate of the point. */
-  uint8_t out_max; /**< @brief The y-coordinate of the point. */
+  uint8_t high_to;   /**< @brief The y-coordinate of the point. */
+  uint8_t out_min;   /**< @brief The y-coordinate of the point. */
+  uint8_t out_max;   /**< @brief The y-coordinate of the point. */
 };
 
 uint8_t mapAxis(uint8_t raw, const AxisMap &m);

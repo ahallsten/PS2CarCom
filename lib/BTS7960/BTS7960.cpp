@@ -1,28 +1,49 @@
-/*
-  BTS7960.cpp - Library to control the BTS7960 motor driver
-*/
 #include "BTS7960.h"
+#include <Arduino.h>
 
-BTS7960::BTS7960(uint8_t RPWM, uint8_t LPWM, uint8_t L_EN, uint8_t R_EN, uint8_t L_IS, uint8_t R_IS)
-  : _LPWM(LPWM), _RPWM(RPWM), _L_EN(L_EN), _R_EN(R_EN), _L_IS(L_IS), _R_IS(R_IS) {}
+BTS7960::BTS7960(Adafruit_MCP23X17 *mcp,
+                 PinDef RPWM, PinDef LPWM,
+                 PinDef L_EN, PinDef R_EN,
+                 PinDef L_IS, PinDef R_IS)
+  : _mcp(mcp),
+    _RPWM(RPWM), _LPWM(LPWM),
+    _L_EN(L_EN), _R_EN(R_EN),
+    _L_IS(L_IS), _R_IS(R_IS) {}
+
+void BTS7960::pinModeX(PinDef pin, uint8_t mode) {
+  if (pin.source == MCP_PIN) _mcp->pinMode(pin.pin, mode);
+  else pinMode(pin.pin, mode);
+}
+
+void BTS7960::digitalWriteX(PinDef pin, uint8_t value) {
+  if (pin.source == MCP_PIN) _mcp->digitalWrite(pin.pin, value);
+  else digitalWrite(pin.pin, value);
+}
+
+int BTS7960::analogWriteX(PinDef pin, uint8_t) {
+  if (pin.source == MCP_PIN)
+    return 0; // MCP can’t do analog, just return 0 or handle error
+  return analogRead(pin.pin);
+}
 
 void BTS7960::begin() {
-  pinMode(_LPWM, OUTPUT);
-  pinMode(_RPWM, OUTPUT);
-  pinMode(_L_EN, OUTPUT);
-  pinMode(_R_EN, OUTPUT);
-  digitalWrite(_L_EN, HIGH);
-  digitalWrite(_R_EN, HIGH);
+  pinModeX(_RPWM, OUTPUT);
+  pinModeX(_LPWM, OUTPUT);
+  pinModeX(_L_EN, OUTPUT);
+  pinModeX(_R_EN, OUTPUT);
+  pinModeX(_L_IS, INPUT);
+  pinModeX(_R_IS, INPUT);
+  coast();
 }
 
 void BTS7960::drive(int16_t pwm) {
   pwm = constrain(pwm, -255, 255);
   if (pwm > 0) {
-    analogWrite(_LPWM, pwm);
-    analogWrite(_RPWM, 0);
+    analogWriteX(_LPWM, pwm);
+    analogWriteX(_RPWM, 0);
   } else if (pwm < 0) {
-    analogWrite(_LPWM, 0);
-    analogWrite(_RPWM, -pwm);
+    analogWriteX(_LPWM, 0);
+    analogWriteX(_RPWM, -pwm);
   } else {
     brake();
   }
@@ -30,28 +51,28 @@ void BTS7960::drive(int16_t pwm) {
 
 void BTS7960::cwBrake()
 {
-    digitalWrite(_R_EN, 1);
-    digitalWrite(_L_EN, 0);
+    digitalWriteX(_R_EN, 1);
+    digitalWriteX(_L_EN, 0);
 }
 
 void BTS7960::ccwBrake()
 {
-    digitalWrite(_R_EN, 0);
-    digitalWrite(_L_EN, 1);
+    digitalWriteX(_R_EN, 0);
+    digitalWriteX(_L_EN, 1);
 }
 
 void BTS7960::enable()
 {
-    digitalWrite(_R_EN, 1);
-    digitalWrite(_L_EN, 1);
+    digitalWriteX(_R_EN, 1);
+    digitalWriteX(_L_EN, 1);
 }
 
 void BTS7960::brake() {
-  analogWrite(_LPWM, 0);
-  analogWrite(_RPWM, 0);
+  analogWriteX(_LPWM, 0);
+  analogWriteX(_RPWM, 0);
 }
 
 void BTS7960::coast() {
-  digitalWrite(_L_EN, LOW);
-  digitalWrite(_R_EN, LOW);
+  digitalWriteX(_L_EN, LOW);
+  digitalWriteX(_R_EN, LOW);
 }
