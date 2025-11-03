@@ -12,6 +12,7 @@
 #include <avr/pgmspace.h>
 #include <Adafruit_MCP23X17.h>
 #include "BTS7960.h"
+#include "MCPPWM.h"
 #include "Joystick.h"
 #include "AxisMap.h"
 // #include "utils.h"
@@ -63,6 +64,21 @@ typedef const byte* PGM_BYTES_P;
 #define STEER_PWM 3
 
 Adafruit_MCP23X17 mcp;
+
+MCPPWM mcppwm(mcp, /*hz=*/50, /*levels=*/32);
+
+// rear channel handles
+int8_t ch_RL_LPWM = -1, ch_RL_RPWM = -1;
+int8_t ch_RR_LPWM = -1, ch_RR_RPWM = -1;
+
+// helper: drive a rear H-bridge via MCP PWM
+static inline void driveRearMCP(int16_t pwm, int8_t chLPWM, int8_t chRPWM) {
+  pwm = constrain(pwm, -255, 255);
+  if (pwm > 0)      { mcppwm.set(chLPWM, (uint8_t)pwm); mcppwm.set(chRPWM, 0); }
+  else if (pwm < 0) { mcppwm.set(chLPWM, 0);            mcppwm.set(chRPWM, (uint8_t)(-pwm)); }
+  else              { mcppwm.set(chLPWM, 0);            mcppwm.set(chRPWM, 0); }
+}
+
 
 // BTS7960 (uint8_t RPWM,uint8_t LPWM,uint8_t L_EN,uint8_t R_EN)
 BTS7960 mFL(
