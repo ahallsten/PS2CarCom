@@ -14,7 +14,7 @@
 
 #include "SoftwarePWMX.h"
 #include "BTS7960.h"
-#include "MCPPWM.h"
+// #include "MCPPWM.h"
 #include "Joystick.h"
 #include "AxisMap.h"
 // #include "utils.h"
@@ -97,13 +97,16 @@ PinDef RR_L_IS = { MOTOR_RR_RIS, PinSource::MCP_PIN };
 PinDef RR_R_IS = { MOTOR_RR_LIS, PinSource::MCP_PIN };
 
 
-int fl_pwm_ch, fr_pwm_ch, 
-int rl_pwm_ch, rr_pwm_ch, 
+int fl_Lpwm_ch, fr_Lpwm_ch;
+int fl_Rpwm_ch, fr_Rpwm_ch;
+int rl_Lpwm_ch, rr_Lpwm_ch;
+int rl_Rpwm_ch, rr_Rpwm_ch;
 
+// Front left, Front right, Rear left, Rear right motor drivers
 BTS7960 mFL(&mcp, &pwmx, FL_RPWM, FL_LPWM, FL_L_EN, FL_R_EN, FL_L_IS, FL_R_IS);
-BTS7960 mFR(&mcp, &pwmx, FR_RPWM , FR_LPWM, FR_L_EN, FR_R_EN, FR_L_IS, FR_R_IS);
-BTS7960 mRL(&mcp, &pwmx, RL_RPWM , RL_LPWM, RL_L_EN, RL_R_EN, RL_L_IS, RL_R_IS);
-BTS7960 mRR(&mcp, &pwmx,RR_RPWM ,RR_LPWM, RR_L_EN, RR_R_EN, RR_L_IS, RR_R_IS);
+BTS7960 mFR(&mcp, &pwmx, FR_RPWM, FR_LPWM, FR_L_EN, FR_R_EN, FR_L_IS, FR_R_IS);
+BTS7960 mRL(&mcp, &pwmx, RL_RPWM, RL_LPWM, RL_L_EN, RL_R_EN, RL_L_IS, RL_R_IS);
+BTS7960 mRR(&mcp, &pwmx, RR_RPWM, RR_LPWM, RR_L_EN, RR_R_EN, RR_L_IS, RR_R_IS);
 
 #endif
 
@@ -714,15 +717,15 @@ void setup()
             Serial.println("mcp error");
         }
     }
-    rpwm_ch = pwmx.addChannel(RPWM, 0);
-    lpwm_ch = pwmx.addChannel(LPWM, 0);
-    lpwm_ch = pwmx.addChannel(LPWM, 0);
-    lpwm_ch = pwmx.addChannel(LPWM, 0);
+    fl_Lpwm_ch = pwmx.addChannel(FL_LPWM, 0);
+    fr_Lpwm_ch = pwmx.addChannel(FR_LPWM, 0);
+    rl_Lpwm_ch = pwmx.addChannel(RL_LPWM, 0);
+    rr_Lpwm_ch = pwmx.addChannel(RR_LPWM, 0);
 
-    lpwm_ch = pwmx.addChannel(LPWM, 0);
-    lpwm_ch = pwmx.addChannel(LPWM, 0);
-    lpwm_ch = pwmx.addChannel(LPWM, 0);
-    lpwm_ch = pwmx.addChannel(LPWM, 0);
+    fl_Rpwm_ch = pwmx.addChannel(FL_RPWM, 0);
+    fr_Rpwm_ch = pwmx.addChannel(FR_RPWM, 0);
+    rl_Rpwm_ch = pwmx.addChannel(RL_RPWM, 0);
+    rr_Rpwm_ch = pwmx.addChannel(RR_RPWM, 0);
 
     Serial.println("mcp initialized");
 
