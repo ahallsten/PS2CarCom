@@ -11,6 +11,8 @@
 #include <Wire.h>
 #include <avr/pgmspace.h>
 #include <Adafruit_MCP23X17.h>
+
+#include "SoftwarePWMX.h"
 #include "BTS7960.h"
 #include "MCPPWM.h"
 #include "Joystick.h"
@@ -33,8 +35,8 @@ typedef const byte* PGM_BYTES_P;
 /*----------------------------------------------------------------------*/
 #ifdef RECEIVER
 // Motor FL (Front Left) Pin Assignments
-#define MOTOR_FL_RPWM 12
 #define MOTOR_FL_LPWM 13
+#define MOTOR_FL_RPWM 12
 #define MOTOR_FL_REN 0 // mcp portB 0 or pin 1
 #define MOTOR_FL_LEN 1 // mcp portB 1 or pin 2
 #define MOTOR_FL_RIS A0
@@ -64,59 +66,45 @@ typedef const byte* PGM_BYTES_P;
 #define STEER_PWM 3
 
 Adafruit_MCP23X17 mcp;
+SoftwarePWMX pwmx(8, &mcp);
 
-MCPPWM mcppwm(mcp, /*hz=*/50, /*levels=*/32);
+PinDef FL_RPWM = { MOTOR_FL_LPWM, PinSource::MCP_PIN };
+PinDef FL_LPWM = { MOTOR_FL_RPWM, PinSource::MCP_PIN };
+PinDef FL_L_EN = { MOTOR_FL_REN, PinSource::MCP_PIN };
+PinDef FL_R_EN = { MOTOR_FL_LEN, PinSource::MCP_PIN };
+PinDef FL_L_IS = { MOTOR_FL_RIS, PinSource::MCP_PIN };
+PinDef FL_R_IS = { MOTOR_FL_LIS, PinSource::MCP_PIN };
 
-// rear channel handles
-int8_t ch_RL_LPWM = -1, ch_RL_RPWM = -1;
-int8_t ch_RR_LPWM = -1, ch_RR_RPWM = -1;
+PinDef FR_RPWM = { MOTOR_FR_RPWM, PinSource::MCP_PIN };
+PinDef FR_LPWM = { MOTOR_FR_LPWM, PinSource::MCP_PIN };
+PinDef FR_L_EN = { MOTOR_FR_REN, PinSource::MCP_PIN };
+PinDef FR_R_EN = { MOTOR_FR_LEN, PinSource::MCP_PIN };
+PinDef FR_L_IS = { MOTOR_FR_RIS, PinSource::MCP_PIN };
+PinDef FR_R_IS = { MOTOR_FR_LIS, PinSource::MCP_PIN };
 
-// helper: drive a rear H-bridge via MCP PWM
-static inline void driveRearMCP(int16_t pwm, int8_t chLPWM, int8_t chRPWM) {
-  pwm = constrain(pwm, -255, 255);
-  if (pwm > 0)      { mcppwm.set(chLPWM, (uint8_t)pwm); mcppwm.set(chRPWM, 0); }
-  else if (pwm < 0) { mcppwm.set(chLPWM, 0);            mcppwm.set(chRPWM, (uint8_t)(-pwm)); }
-  else              { mcppwm.set(chLPWM, 0);            mcppwm.set(chRPWM, 0); }
-}
+PinDef RL_RPWM = { MOTOR_RL_RPWM, PinSource::MCP_PIN };
+PinDef RL_LPWM = { MOTOR_RL_LPWM, PinSource::MCP_PIN };
+PinDef RL_L_EN = { MOTOR_RL_REN, PinSource::MCP_PIN };
+PinDef RL_R_EN = { MOTOR_RL_LEN, PinSource::MCP_PIN };
+PinDef RL_L_IS = { MOTOR_RL_RIS, PinSource::MCP_PIN };
+PinDef RL_R_IS = { MOTOR_RL_LIS, PinSource::MCP_PIN };
+
+PinDef RR_RPWM = { MOTOR_RR_RPWM, PinSource::MCP_PIN };
+PinDef RR_LPWM = { MOTOR_RR_LPWM, PinSource::MCP_PIN };
+PinDef RR_L_EN = { MOTOR_RR_REN, PinSource::MCP_PIN };
+PinDef RR_R_EN = { MOTOR_RR_LEN, PinSource::MCP_PIN };
+PinDef RR_L_IS = { MOTOR_RR_RIS, PinSource::MCP_PIN };
+PinDef RR_R_IS = { MOTOR_RR_LIS, PinSource::MCP_PIN };
 
 
-// BTS7960 (uint8_t RPWM,uint8_t LPWM,uint8_t L_EN,uint8_t R_EN)
-BTS7960 mFL(
-  &mcp,
-  {MOTOR_FL_RPWM, MCU_PIN},
-  {MOTOR_FL_LPWM, MCU_PIN},
-  {MOTOR_FL_LEN, MCP_PIN},
-  {MOTOR_FL_REN, MCP_PIN},
-  {MOTOR_FL_LIS, MCU_PIN},
-  {MOTOR_FL_RIS, MCU_PIN}
-);
-BTS7960 mFR(
-  &mcp,
-  {MOTOR_FR_RPWM, MCU_PIN},
-  {MOTOR_FR_LPWM, MCU_PIN},
-  {MOTOR_FR_LEN, MCP_PIN},
-  {MOTOR_FR_REN, MCP_PIN},
-  {MOTOR_FR_LIS, MCU_PIN},
-  {MOTOR_FR_RIS, MCU_PIN}
-);
-BTS7960 mRL(
-  &mcp,
-  {MOTOR_RL_RPWM, MCU_PIN},
-  {MOTOR_RL_LPWM, MCU_PIN},
-  {MOTOR_RL_LEN, MCP_PIN},
-  {MOTOR_RL_REN, MCP_PIN},
-  {MOTOR_RL_LIS, MCU_PIN},
-  {MOTOR_RL_RIS, MCU_PIN}
-);
-BTS7960 mRR(
-  &mcp,
-  {MOTOR_RR_RPWM, MCU_PIN},
-  {MOTOR_RR_LPWM, MCU_PIN},
-  {MOTOR_RR_LEN, MCP_PIN},
-  {MOTOR_RR_REN, MCP_PIN},
-  {MOTOR_RR_LIS, MCU_PIN},
-  {MOTOR_RR_RIS, MCU_PIN}
-);
+int fl_pwm_ch, fr_pwm_ch, 
+int rl_pwm_ch, rr_pwm_ch, 
+
+BTS7960 mFL(&mcp, &pwmx, FL_RPWM, FL_LPWM, FL_L_EN, FL_R_EN, FL_L_IS, FL_R_IS);
+BTS7960 mFR(&mcp, &pwmx, FR_RPWM , FR_LPWM, FR_L_EN, FR_R_EN, FR_L_IS, FR_R_IS);
+BTS7960 mRL(&mcp, &pwmx, RL_RPWM , RL_LPWM, RL_L_EN, RL_R_EN, RL_L_IS, RL_R_IS);
+BTS7960 mRR(&mcp, &pwmx,RR_RPWM ,RR_LPWM, RR_L_EN, RR_R_EN, RR_L_IS, RR_R_IS);
+
 #endif
 
 /*TRANSMITTER & RECIEVER DEFINITIONS*/
@@ -718,26 +706,32 @@ void setup()
 
     Serial.println("starting mcp");
 
+
+
     if (!mcp.begin_I2C()) {
         Serial.println("mcp begin error.");
-        while (1){
+        while (1) {
             Serial.println("mcp error");
         }
     }
-    mcp.pinMode(MOTOR_FR_REN, OUTPUT);
-    mcp.pinMode(MOTOR_FR_LEN, OUTPUT);
-    mcp.pinMode(MOTOR_FL_LEN, OUTPUT);
-    mcp.pinMode(MOTOR_FL_REN, OUTPUT);
-    mcp.pinMode(MOTOR_RL_RPWM, OUTPUT);
-    mcp.pinMode(MOTOR_RL_LPWM, OUTPUT);
-    mcp.pinMode(MOTOR_RL_REN, OUTPUT);
-    mcp.pinMode(MOTOR_RL_LEN, OUTPUT);
-    mcp.pinMode(MOTOR_RR_RPWM, OUTPUT);
-    mcp.pinMode(MOTOR_RR_LPWM, OUTPUT);
-    mcp.pinMode(MOTOR_RR_REN, OUTPUT);
-    mcp.pinMode(MOTOR_RR_LEN, OUTPUT);
+    rpwm_ch = pwmx.addChannel(RPWM, 0);
+    lpwm_ch = pwmx.addChannel(LPWM, 0);
+    lpwm_ch = pwmx.addChannel(LPWM, 0);
+    lpwm_ch = pwmx.addChannel(LPWM, 0);
+
+    lpwm_ch = pwmx.addChannel(LPWM, 0);
+    lpwm_ch = pwmx.addChannel(LPWM, 0);
+    lpwm_ch = pwmx.addChannel(LPWM, 0);
+    lpwm_ch = pwmx.addChannel(LPWM, 0);
 
     Serial.println("mcp initialized");
+
+    mFL.begin();
+    mFR.begin();
+    mRL.begin();
+    mRR.begin();
+
+    Serial.println("motor drivers initialized");
 
     // Initialize RFM95
     pinMode(RFM95_RST, OUTPUT);
@@ -746,24 +740,19 @@ void setup()
     if (!rfm.init())
     {
         Serial.println("RFM95 initialization failed");
-        while (1){
+        while (1) {
             Serial.println("RFM9x Error");
         }
     }
     rfm.setFrequency(915.0);
     Serial.println("RFM95 initialized: RECEIVER");
 
-    // enable the BTS7960 Motordriver
-    mFL.begin();
-    mFR.begin();
-    mRL.begin();
-    mRR.begin();
-    Serial.println("motors begun");
 }
 
 void loop()
 {
     receivePacket();
     controlsDecision();
+    pwmx.update();
 }
 #endif
