@@ -23,8 +23,6 @@ public:
   void ccwBrake();
   void cwBrake();
   void enable();
-  void disable();
-  void stop();
 
 private:
   Adafruit_MCP23X17 *_mcp;

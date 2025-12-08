@@ -13,6 +13,8 @@ BTS7960::BTS7960(Adafruit_MCP23X17 *mcp,
     _L_IS(L_IS), _R_IS(R_IS) {}
 
 void BTS7960::brake() {
+  // To Do: _pwmx is indexing pins 0 and 1 needs to index variable passed in
+  // To Do: pwmx->setDuty needs an int not a PinDef maybe convert a PinDef to uint_8
   _pwmx->setDuty(0, 0);
   _pwmx->setDuty(1, 0);
 }
@@ -71,11 +73,6 @@ void BTS7960::enable()
 {
     digitalWriteX(_R_EN, 1);
     digitalWriteX(_L_EN, 1);
-}
-
-void BTS7960::brake() {
-  _pwmx->setDuty(0, 0);
-  _pwmx->setDuty(1, 0);
 }
 
 void BTS7960::coast() {
