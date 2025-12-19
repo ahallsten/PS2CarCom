@@ -23,6 +23,8 @@ public:
   void ccwBrake();
   void cwBrake();
   void enable();
+  void disable();
+  void stop();
 
 private:
   Adafruit_MCP23X17 *_mcp;
@@ -31,10 +33,10 @@ private:
   PinDef _RPWM, _LPWM;
   PinDef _L_EN, _R_EN;
   PinDef _L_IS, _R_IS;
+  int8_t _rPwmCh = -1;
+  int8_t _lPwmCh = -1;
 
   void pinModeX(PinDef pin, uint8_t mode);
   void digitalWriteX(PinDef pin, uint8_t value);
 };
 #endif
-
-

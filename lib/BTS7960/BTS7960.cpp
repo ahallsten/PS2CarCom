@@ -10,18 +10,7 @@ BTS7960::BTS7960(Adafruit_MCP23X17 *mcp,
     _pwmx(pwmx),
     _RPWM(RPWM), _LPWM(LPWM),
     _L_EN(L_EN), _R_EN(R_EN),
-    _L_IS(L_IS), _R_IS(R_IS) {}
-
-void BTS7960::brake() {
-  // To Do: _pwmx is indexing pins 0 and 1 needs to index variable passed in
-  // To Do: pwmx->setDuty needs an int not a PinDef maybe convert a PinDef to uint_8
-  _pwmx->setDuty(0, 0);
-  _pwmx->setDuty(1, 0);
-}
-
-void BTS7960::coast() {
-  digitalWriteX(_L_EN, LOW);
-  digitalWriteX(_R_EN, LOW);
+    _L_IS(L_IS), _R_IS(R_IS) {
 }
 
 void BTS7960::pinModeX(PinDef pin, uint8_t mode) {
@@ -41,41 +30,57 @@ void BTS7960::begin() {
   pinModeX(_R_EN, OUTPUT);
   pinModeX(_L_IS, INPUT);
   pinModeX(_R_IS, INPUT);
+
+  _rPwmCh = _pwmx ? _pwmx->addChannel(_RPWM, 0) : -1;
+  _lPwmCh = _pwmx ? _pwmx->addChannel(_LPWM, 0) : -1;
   coast();
 }
 
 void BTS7960::drive(int16_t pwm) {
+  if (_rPwmCh < 0 || _lPwmCh < 0) return;
   pwm = constrain(pwm, -255, 255);
   if (pwm > 0) {
-    _pwmx->setDuty(0, pwm);  // Example: channel index for _RPWM
-    _pwmx->setDuty(1, 0);    // Example: channel index for _LPWM
+    _pwmx->setDuty(_rPwmCh, static_cast<uint8_t>(pwm));
+    _pwmx->setDuty(_lPwmCh, 0);
   } else if (pwm < 0) {
-    _pwmx->setDuty(0, 0);
-    _pwmx->setDuty(1, -pwm);
+    _pwmx->setDuty(_rPwmCh, 0);
+    _pwmx->setDuty(_lPwmCh, static_cast<uint8_t>(-pwm));
   } else {
     brake();
   }
 }
 
-void BTS7960::cwBrake()
-{
-    digitalWriteX(_R_EN, 1);
-    digitalWriteX(_L_EN, 0);
-}
-
-void BTS7960::ccwBrake()
-{
-    digitalWriteX(_R_EN, 0);
-    digitalWriteX(_L_EN, 1);
-}
-
-void BTS7960::enable()
-{
-    digitalWriteX(_R_EN, 1);
-    digitalWriteX(_L_EN, 1);
+void BTS7960::brake() {
+  if (_rPwmCh < 0 || _lPwmCh < 0) return;
+  _pwmx->setDuty(_rPwmCh, 0);
+  _pwmx->setDuty(_lPwmCh, 0);
 }
 
 void BTS7960::coast() {
   digitalWriteX(_L_EN, LOW);
   digitalWriteX(_R_EN, LOW);
+}
+
+void BTS7960::cwBrake() {
+  digitalWriteX(_R_EN, 1);
+  digitalWriteX(_L_EN, 0);
+}
+
+void BTS7960::ccwBrake() {
+  digitalWriteX(_R_EN, 0);
+  digitalWriteX(_L_EN, 1);
+}
+
+void BTS7960::enable() {
+  digitalWriteX(_R_EN, 1);
+  digitalWriteX(_L_EN, 1);
+}
+
+void BTS7960::disable() {
+  coast();
+}
+
+void BTS7960::stop() {
+  brake();
+  coast();
 }
