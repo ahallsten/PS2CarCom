@@ -32,11 +32,13 @@ public:
   void brake();
   void coast();
   void stop();
+  void getMotorPercents(uint8_t out[4]) const;
 
 private:
   void enableAll();
   void coastAll();
   void brakeAll();
+  void recordCmds(int16_t fl, int16_t fr, int16_t rl, int16_t rr);
 
   BTS7960 _fl;
   BTS7960 _fr;
@@ -45,6 +47,7 @@ private:
 
   bool _enabled = false;
   bool _parkingBrake = false;
+  int16_t _lastCmd[4] = {0, 0, 0, 0};
 };
 
 #endif

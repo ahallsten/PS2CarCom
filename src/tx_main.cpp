@@ -10,6 +10,7 @@
 #include <avr/pgmspace.h>
 
 #include "ControllerState.h"
+#include "Protocol.h"
 #include "RadioConfig.h"
 
 typedef const __FlashStringHelper* FlashStr;
@@ -41,6 +42,21 @@ static const char* const controllerTypeStrings[PSCTRL_MAX + 1] PROGMEM = {
 static RH_RF95 rfm(RFM95_CS, RFM95_INT);
 static ControllerState currentState = { 0, 0, 0, 0, 0 };
 static ControllerState previousState = { 0, 0, 0, 0, 0 };
+static bool rxLinkOk = false;
+static unsigned long lastRxHeartbeatMs = 0;
+static unsigned long lastStatusSendMs = 0;
+static const unsigned long HEARTBEAT_PERIOD_MS = 100;
+static const unsigned long LINK_TIMEOUT_MS = 500;
+static int16_t rssiRawTx = 0;
+static int16_t rssiSmoothTx = 0;
+static float transmitterBatteryVoltage = 0.0f;
+static float receiverBatteryVoltage = 0.0f;
+static uint8_t motorPercents[4] = {0, 0, 0, 0};
+
+static float readTransmitterBatteryVoltage() {
+  // TODO: hook up actual analog measurement
+  return 0.0f;
+}
 
 static void updateCurrentState() {
   currentState.buttonWord = psx.getButtonWord();
@@ -48,14 +64,57 @@ static void updateCurrentState() {
   psx.getRightAnalog(currentState.rightX, currentState.rightY);
 }
 
-static void sendStateIfChanged() {
+static void sendControlIfChanged() {
   if (!stateChanged(currentState, previousState)) return;
 
-  uint8_t packet[sizeof(ControllerState)];
-  memcpy(packet, &currentState, sizeof(ControllerState));
-  rfm.send(packet, sizeof(packet));
+  ControlPacket pkt;
+  pkt.state = currentState;
+  rfm.send(reinterpret_cast<uint8_t*>(&pkt), sizeof(pkt));
   printControllerState(currentState, Serial);
   previousState = currentState;
+}
+
+static void sendStatusHeartbeat() {
+  unsigned long now = millis();
+  if (now - lastStatusSendMs < HEARTBEAT_PERIOD_MS) return;
+  lastStatusSendMs = now;
+
+  transmitterBatteryVoltage = readTransmitterBatteryVoltage();
+
+  StatusPacket pkt;
+  pkt.linkOk = rxLinkOk ? 1 : 0;
+  pkt.rssiRaw = rssiRawTx;
+  pkt.rssiSmooth = rssiSmoothTx;
+  pkt.batteryV = transmitterBatteryVoltage;
+  // Motor pct not applicable on TX; leave zeros
+
+  rfm.send(reinterpret_cast<uint8_t*>(&pkt), sizeof(pkt));
+}
+
+static void handleIncomingPackets() {
+  while (rfm.available()) {
+    uint8_t buffer[sizeof(StatusPacket)] = {0};
+    uint8_t len = sizeof(buffer);
+    if (!rfm.recv(buffer, &len)) continue;
+    if (len < 1) continue;
+
+    uint8_t type = buffer[0];
+    if (type == PACKET_STATUS && len == sizeof(StatusPacket)) {
+      StatusPacket pkt;
+      memcpy(&pkt, buffer, sizeof(StatusPacket));
+      lastRxHeartbeatMs = millis();
+      rxLinkOk = pkt.linkOk != 0;
+      rssiRawTx = rfm.lastRssi();
+      rssiSmoothTx = smoothRssi(rssiRawTx, rssiSmoothTx);
+      receiverBatteryVoltage = pkt.batteryV;
+      memcpy(motorPercents, pkt.motorPct, sizeof(motorPercents));
+    } else if (type == PACKET_CONTROL && len == sizeof(ControlPacket)) {
+      lastRxHeartbeatMs = millis();
+      rxLinkOk = true;
+      rssiRawTx = rfm.lastRssi();
+      rssiSmoothTx = smoothRssi(rssiRawTx, rssiSmoothTx);
+    }
+  }
 }
 
 static void PS2ControllerCheck() {
@@ -93,7 +152,7 @@ static void PS2ControllerCheck() {
       haveController = false;
     } else {
       updateCurrentState();
-      sendStateIfChanged();
+      sendControlIfChanged();
     }
   }
 }
@@ -120,7 +179,14 @@ void setup() {
 
 void loop() {
   PS2ControllerCheck();
-  delay(1000 / 140);
+  handleIncomingPackets();
+
+  if (millis() - lastRxHeartbeatMs > LINK_TIMEOUT_MS) {
+    rxLinkOk = false;
+  }
+
+  sendStatusHeartbeat();
+  delay(5);
 }
 
 #endif

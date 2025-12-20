@@ -33,9 +33,11 @@ void DriveSystem::setParkingBrake(bool enabled) {
 void DriveSystem::applyDrive(int16_t fl, int16_t fr, int16_t rl, int16_t rr) {
   if (_parkingBrake) {
     brakeAll();
+    recordCmds(0, 0, 0, 0);
     return;
   }
 
+  recordCmds(fl, fr, rl, rr);
   _fl.drive(fl);
   _fr.drive(fr);
   _rl.drive(rl);
@@ -48,15 +50,18 @@ void DriveSystem::applyDriveAll(int16_t pwm) {
 
 void DriveSystem::brake() {
   brakeAll();
+  recordCmds(0, 0, 0, 0);
 }
 
 void DriveSystem::coast() {
   coastAll();
+  recordCmds(0, 0, 0, 0);
 }
 
 void DriveSystem::stop() {
   brakeAll();
   coastAll();
+  recordCmds(0, 0, 0, 0);
 }
 
 void DriveSystem::enableAll() {
@@ -78,4 +83,19 @@ void DriveSystem::brakeAll() {
   _fr.brake();
   _rl.brake();
   _rr.brake();
+}
+
+void DriveSystem::recordCmds(int16_t fl, int16_t fr, int16_t rl, int16_t rr) {
+  _lastCmd[0] = fl;
+  _lastCmd[1] = fr;
+  _lastCmd[2] = rl;
+  _lastCmd[3] = rr;
+}
+
+void DriveSystem::getMotorPercents(uint8_t out[4]) const {
+  for (uint8_t i = 0; i < 4; ++i) {
+    uint16_t mag = abs(_lastCmd[i]);
+    if (mag > 255) mag = 255;
+    out[i] = static_cast<uint8_t>((mag * 100U) / 255U);
+  }
 }

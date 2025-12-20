@@ -10,8 +10,17 @@
 #include "AxisMap.h"
 #include "ControllerState.h"
 #include "DriveSystem.h"
+#include "Protocol.h"
 #include "RadioConfig.h"
 #include "SoftwarePWMX.h"
+
+#ifndef GAS_PEDAL_PIN
+#define GAS_PEDAL_PIN A7 // adjust to your available analog pin
+#endif
+
+#ifndef RX_BATTERY_PIN
+#define RX_BATTERY_PIN A6 // adjust to your battery sense pin
+#endif
 
 // Motor FL (Front Left) Pin Assignments
 static const uint8_t MOTOR_FL_LPWM = 13;
@@ -126,12 +135,14 @@ static const AxisMap kLeftXMap = { 90, 90, 0, 145, 145, 255, 0, 255 };
 static const AxisMap kRightYMap = { 105, 105, 0, 133, 133, 255, 0, 255 };
 static const AxisMap kRightXMap = { 105, 105, 0, 135, 135, 255, 0, 255 };
 
-static int16_t clampSpeed(int16_t pwm) {
-  int16_t magnitude = abs(pwm);
-  if (magnitude == 0) return 0;
-  magnitude = constrain(magnitude, kMinimumSpeed, maximumSpeed);
-  return (pwm < 0) ? -magnitude : magnitude;
-}
+static const unsigned long HEARTBEAT_PERIOD_MS = 100;
+static const unsigned long LINK_TIMEOUT_MS = 500;
+static unsigned long lastTxHeartbeatMs = 0;
+static unsigned long lastStatusSendMs = 0;
+static bool txLinkOk = false;
+static int16_t rssiRawRx = 0;
+static int16_t rssiSmoothRx = 0;
+static float receiverBatteryVoltage = 0.0f;
 
 static Button getButtonEnum(uint8_t bit) {
   if (bit > 15) return UNKNOWN;
@@ -168,40 +179,94 @@ static void handleButtonPress(uint8_t bit) {
   }
 }
 
-static void onRisingEdge(uint8_t bit) {
-  handleButtonPress(bit);
+static void onRisingEdge(uint8_t bit) { handleButtonPress(bit); }
+
+static int16_t clampSpeed(int16_t pwm) {
+  int16_t magnitude = abs(pwm);
+  if (magnitude == 0) return 0;
+  magnitude = constrain(magnitude, kMinimumSpeed, maximumSpeed);
+  return (pwm < 0) ? -magnitude : magnitude;
 }
 
-static bool receivePacket(ControllerState &state) {
-  if (!rfm.available()) return false;
+static uint8_t getGasPedalDriveValue() {
+  int raw = analogRead(GAS_PEDAL_PIN);
+  if (raw < 0) raw = 0;
+  if (raw > 1023) raw = 1023;
+  return static_cast<uint8_t>((raw * 255L) / 1023L);
+}
 
-  uint8_t buffer[sizeof(ControllerState)];
-  uint8_t len = sizeof(buffer);
+static float readReceiverBatteryVoltage() {
+  int raw = analogRead(RX_BATTERY_PIN);
+  if (raw < 0) raw = 0;
+  return raw * (48.0f / 1023.0f);
+}
 
-  if (!rfm.recv(buffer, &len)) return false;
-  if (len != sizeof(ControllerState)) return false;
+static void sendStatusHeartbeat() {
+  unsigned long now = millis();
+  if (now - lastStatusSendMs < HEARTBEAT_PERIOD_MS) return;
+  lastStatusSendMs = now;
 
-  memcpy(&state, buffer, sizeof(ControllerState));
-  return true;
+  StatusPacket pkt;
+  pkt.linkOk = txLinkOk ? 1 : 0;
+  pkt.rssiRaw = rssiRawRx;
+  pkt.rssiSmooth = rssiSmoothRx;
+  pkt.batteryV = receiverBatteryVoltage;
+  drive.getMotorPercents(pkt.motorPct);
+
+  rfm.send(reinterpret_cast<uint8_t*>(&pkt), sizeof(pkt));
+}
+
+static void handleIncomingPackets() {
+  while (rfm.available()) {
+    uint8_t buffer[sizeof(StatusPacket)] = {0};
+    uint8_t len = sizeof(buffer);
+    if (!rfm.recv(buffer, &len)) continue;
+    if (len < 1) continue;
+
+    uint8_t type = buffer[0];
+    if (type == PACKET_CONTROL && len == sizeof(ControlPacket)) {
+      ControlPacket pkt;
+      memcpy(&pkt, buffer, sizeof(ControlPacket));
+      currentState = pkt.state;
+      lastTxHeartbeatMs = millis();
+      txLinkOk = true;
+      rssiRawRx = rfm.lastRssi();
+      rssiSmoothRx = smoothRssi(rssiRawRx, rssiSmoothRx);
+    } else if (type == PACKET_STATUS && len == sizeof(StatusPacket)) {
+      lastTxHeartbeatMs = millis();
+      txLinkOk = true;
+      rssiRawRx = rfm.lastRssi();
+      rssiSmoothRx = smoothRssi(rssiRawRx, rssiSmoothRx);
+    }
+  }
 }
 
 static void controlsDecision() {
-  if (!stateChanged(currentState, previousState)) return;
+  unsigned long now = millis();
+  if (now - lastTxHeartbeatMs > LINK_TIMEOUT_MS) {
+    txLinkOk = false;
+    drive.setEnabled(false);
+    drive.applyDriveAll(0);
+    return;
+  }
 
-  previousState = currentState;
-  buttonEdges.update(currentState.buttonWord, onRisingEdge, nullptr, nullptr);
+  if (stateChanged(currentState, previousState)) {
+    previousState = currentState;
+    buttonEdges.update(currentState.buttonWord, onRisingEdge, nullptr, nullptr);
+  }
 
   leftYPWM = mapAxisSigned(currentState.leftY, kLeftYMap);
   leftXPWM = mapAxisSigned(currentState.leftX, kLeftXMap);
   rightYPWM = mapAxisSigned(currentState.rightY, kRightYMap);
   rightXPWM = mapAxisSigned(currentState.rightX, kRightXMap);
 
-  int16_t leftDrive = clampSpeed(leftYPWM);
-  int16_t rightDrive = clampSpeed(tankMode ? rightYPWM : leftYPWM);
+  uint8_t pedal = getGasPedalDriveValue();
+
+  int16_t leftDrive = (clampSpeed(leftYPWM) * pedal) / 255;
+  int16_t rightDrive = (clampSpeed(tankMode ? rightYPWM : leftYPWM) * pedal) / 255;
 
   drive.setEnabled(driveEnabled);
   drive.setParkingBrake(parkingBrake);
-
   drive.applyDrive(leftDrive, rightDrive, leftDrive, rightDrive);
 
   uint8_t steerPwm = static_cast<uint8_t>(constrain(rightXPWM + 127, 0, 255));
@@ -218,6 +283,8 @@ void setup() {
   }
 
   pinMode(STEER_PWM, OUTPUT);
+  pinMode(GAS_PEDAL_PIN, INPUT);
+  pinMode(RX_BATTERY_PIN, INPUT);
 
   if (!mcp.begin_I2C()) {
     Serial.println("mcp begin error.");
@@ -245,9 +312,10 @@ void setup() {
 }
 
 void loop() {
-  if (receivePacket(currentState)) {
-    controlsDecision();
-  }
+  handleIncomingPackets();
+  receiverBatteryVoltage = readReceiverBatteryVoltage();
+  controlsDecision();
+  sendStatusHeartbeat();
   pwmx.update();
 }
 
