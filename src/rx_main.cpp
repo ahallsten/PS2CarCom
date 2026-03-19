@@ -95,8 +95,8 @@ static const MotorPins kRrPins = {
 static DriveSystem drive(mcp, pwmx, kFlPins, kFrPins, kRlPins, kRrPins);
 static RH_RF95 rfm(RFM95_CS, RFM95_INT);
 
-static ControllerState currentState = { 0, 0, 0, 0, 0 };
-static ControllerState previousState = { 0, 0, 0, 0, 0 };
+static ControllerState currentState = kNeutralControllerState;
+static ControllerState previousState = kNeutralControllerState;
 static ButtonEdgeTracker buttonEdges;
 
 enum Button : uint8_t {
@@ -137,12 +137,13 @@ static const AxisMap kRightXMap = { 105, 105, 0, 135, 135, 255, 0, 255 };
 
 static const unsigned long HEARTBEAT_PERIOD_MS = 100;
 static const unsigned long LINK_TIMEOUT_MS = 500;
-static unsigned long lastTxHeartbeatMs = 0;
+static unsigned long lastControlPacketMs = 0;
 static unsigned long lastStatusSendMs = 0;
-static bool txLinkOk = false;
 static int16_t rssiRawRx = 0;
 static int16_t rssiSmoothRx = 0;
-static float receiverBatteryVoltage = 0.0f;
+static uint16_t receiverBatteryMilliVolts = 0;
+static bool remoteControllerPresent = false;
+static bool needButtonResync = true;
 
 static Button getButtonEnum(uint8_t bit) {
   if (bit > 15) return UNKNOWN;
@@ -195,10 +196,15 @@ static uint8_t getGasPedalDriveValue() {
   return static_cast<uint8_t>((raw * 255L) / 1023L);
 }
 
-static float readReceiverBatteryVoltage() {
+static uint16_t readReceiverBatteryMilliVolts() {
   int raw = analogRead(RX_BATTERY_PIN);
   if (raw < 0) raw = 0;
-  return raw * (48.0f / 1023.0f);
+  if (raw > 1023) raw = 1023;
+  return static_cast<uint16_t>((static_cast<unsigned long>(raw) * 48000UL) / 1023UL);
+}
+
+static bool hasFreshControlLink() {
+  return remoteControllerPresent && (millis() - lastControlPacketMs <= LINK_TIMEOUT_MS);
 }
 
 static void sendStatusHeartbeat() {
@@ -206,35 +212,31 @@ static void sendStatusHeartbeat() {
   if (now - lastStatusSendMs < HEARTBEAT_PERIOD_MS) return;
   lastStatusSendMs = now;
 
-  StatusPacket pkt;
-  pkt.linkOk = txLinkOk ? 1 : 0;
-  pkt.rssiRaw = rssiRawRx;
-  pkt.rssiSmooth = rssiSmoothRx;
-  pkt.batteryV = receiverBatteryVoltage;
-  drive.getMotorPercents(pkt.motorPct);
+  StatusMessage msg;
+  msg.linkOk = hasFreshControlLink();
+  msg.controllerPresent = remoteControllerPresent;
+  msg.rssiRaw = rssiRawRx;
+  msg.rssiSmooth = rssiSmoothRx;
+  msg.batteryMv = receiverBatteryMilliVolts;
+  drive.getMotorPercents(msg.motorPct);
 
-  rfm.send(reinterpret_cast<uint8_t*>(&pkt), sizeof(pkt));
+  uint8_t buffer[STATUS_MESSAGE_SIZE] = {0};
+  encodeStatusMessage(msg, buffer);
+  rfm.send(buffer, sizeof(buffer));
 }
 
 static void handleIncomingPackets() {
   while (rfm.available()) {
-    uint8_t buffer[sizeof(StatusPacket)] = {0};
+    uint8_t buffer[MAX_WIRE_PACKET_SIZE] = {0};
     uint8_t len = sizeof(buffer);
     if (!rfm.recv(buffer, &len)) continue;
-    if (len < 1) continue;
+    if (len < 2) continue;
 
-    uint8_t type = buffer[0];
-    if (type == PACKET_CONTROL && len == sizeof(ControlPacket)) {
-      ControlPacket pkt;
-      memcpy(&pkt, buffer, sizeof(ControlPacket));
-      currentState = pkt.state;
-      lastTxHeartbeatMs = millis();
-      txLinkOk = true;
-      rssiRawRx = rfm.lastRssi();
-      rssiSmoothRx = smoothRssi(rssiRawRx, rssiSmoothRx);
-    } else if (type == PACKET_STATUS && len == sizeof(StatusPacket)) {
-      lastTxHeartbeatMs = millis();
-      txLinkOk = true;
+    ControlMessage msg;
+    if (decodeControlMessage(buffer, len, msg)) {
+      currentState = msg.state;
+      remoteControllerPresent = msg.controllerPresent;
+      lastControlPacketMs = millis();
       rssiRawRx = rfm.lastRssi();
       rssiSmoothRx = smoothRssi(rssiRawRx, rssiSmoothRx);
     }
@@ -242,15 +244,22 @@ static void handleIncomingPackets() {
 }
 
 static void controlsDecision() {
-  unsigned long now = millis();
-  if (now - lastTxHeartbeatMs > LINK_TIMEOUT_MS) {
-    txLinkOk = false;
+  if (!hasFreshControlLink()) {
+    currentState = kNeutralControllerState;
+    previousState = kNeutralControllerState;
+    buttonEdges.reset(0);
+    needButtonResync = true;
+    driveEnabled = false;
     drive.setEnabled(false);
     drive.applyDriveAll(0);
     return;
   }
 
-  if (stateChanged(currentState, previousState)) {
+  if (needButtonResync) {
+    previousState = currentState;
+    buttonEdges.reset(currentState.buttonWord);
+    needButtonResync = false;
+  } else if (stateChanged(currentState, previousState)) {
     previousState = currentState;
     buttonEdges.update(currentState.buttonWord, onRisingEdge, nullptr, nullptr);
   }
@@ -313,7 +322,7 @@ void setup() {
 
 void loop() {
   handleIncomingPackets();
-  receiverBatteryVoltage = readReceiverBatteryVoltage();
+  receiverBatteryMilliVolts = readReceiverBatteryMilliVolts();
   controlsDecision();
   sendStatusHeartbeat();
   pwmx.update();
