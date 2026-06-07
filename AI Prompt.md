@@ -1,3 +1,50 @@
-Use AGENTS.md as a context file. as the repo is pretty small feel free to look around at any of the files in lib, src, or include. It is pretty much where all the code lives and will go. I currently seem to have a bug. Where the transmitter is at least printing read values from the controller properlly. It seems like messages should be actually getting to the reciever, but the reciever is just printing at somewhat random times. It is not that random becuase the serial print log in the terminal stays still if I dont press buttons and it grows if I do but the print outs are all zeros and there is no change. Lets see if we can find out where the issue is. Currently I feel as though it is where the data from the LoRA module is getting parsed. 
+Uploading the new code set to my devices and testing, I am definitely able to see that the data packets are getting to the receiver as you can see by my serial print logs[the new debug messages are being sent every so often]. Note I was pressing the x button for the second debug message. meanwhile the messages that are setup in ControllerState.cpp or utils.cpp are getting sent in bursts and are not correctly outputing data. are these files or libraries even used in the main code? if so where? is any of it redundant? Lets key in on the fact that they are getting sent in bursts and it seems like the microcotroller is just getting to busy doing something in the mean time like it is running some blocking function because any actions I do on the ps2 controller are not sent immediatly. I have to hold any button or stick until the next round of messages are printed out to see the change.
 
-I would also like to add a feature where we print at the start when serial monitor comes on line what software version we are running [maybe an commit, and I feel like there are other very convenient ways to keep track of software version as well] and whether the device is a Reciever or Transmitter.
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+RX control seq 64 | present: YES | RSSI: -61 | ButtonWord: 0000000000000000 | LX: 128 | LY: 130 | RX: 114 | RY: 124
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+RX control seq 117 | present: YES | RSSI: -60 | ButtonWord: 0100000000000000 | LX: 128 | LY: 130 | RX: 114 | RY: 124
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
+ | pwmLY 0 | pwmLX 0 | pwmRY 0 | pwmSTR 0 | EN: OFF | T_MD: OFF | p_Brk: OFF
