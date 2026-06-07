@@ -10,9 +10,18 @@
 #include "AxisMap.h"
 #include "ControllerState.h"
 #include "DriveSystem.h"
+#include "FirmwareInfo.h"
 #include "Protocol.h"
 #include "RadioConfig.h"
 #include "SoftwarePWMX.h"
+
+#ifndef RX_PRINT_DECODED_CONTROL
+#define RX_PRINT_DECODED_CONTROL 1
+#endif
+
+#ifndef RX_PRINT_DECODE_ERRORS
+#define RX_PRINT_DECODE_ERRORS 1
+#endif
 
 #ifndef GAS_PEDAL_PIN
 #define GAS_PEDAL_PIN A7 // adjust to your available analog pin
@@ -52,6 +61,7 @@ static const uint8_t MOTOR_RR_RIS = 6;
 static const uint8_t MOTOR_RR_LIS = 9;
 // Other Pin Assignments
 static const uint8_t STEER_PWM = 3;
+static const uint8_t RX_PACKET_LED_PIN = 13;
 
 static Adafruit_MCP23X17 mcp;
 static SoftwarePWMX pwmx(8, &mcp);
@@ -144,6 +154,55 @@ static int16_t rssiSmoothRx = 0;
 static uint16_t receiverBatteryMilliVolts = 0;
 static bool remoteControllerPresent = false;
 static bool needButtonResync = true;
+static bool firmwareBannerPrinted = false;
+static ControllerState lastDebugState = kNeutralControllerState;
+static bool lastDebugControllerPresent = false;
+static bool haveDebugState = false;
+static unsigned long lastControlDebugMs = 0;
+static unsigned long lastDecodeErrorMs = 0;
+static uint16_t decodeErrorCount = 0;
+static const unsigned long CONTROL_DEBUG_PERIOD_MS = 1000;
+static const unsigned long DECODE_ERROR_PERIOD_MS = 500;
+static const unsigned long RX_PACKET_LED_ON_MS = 100;
+static const unsigned long RX_PACKET_LED_OFF_MS = 100;
+static bool rxPacketLedOn = false;
+static bool rxPacketLedPending = false;
+static unsigned long rxPacketLedLastTransitionMs = 0;
+
+static void maybePrintFirmwareBanner() {
+  if (firmwareBannerPrinted || !Serial) return;
+  printFirmwareBanner(Serial, F("RECEIVER"));
+  firmwareBannerPrinted = true;
+}
+
+static void startRxPacketLedPulse(unsigned long now) {
+  digitalWrite(RX_PACKET_LED_PIN, HIGH);
+  rxPacketLedOn = true;
+  rxPacketLedPending = false;
+  rxPacketLedLastTransitionMs = now;
+}
+
+static void noteRxPacketForLed() {
+  unsigned long now = millis();
+  if (!rxPacketLedOn && (now - rxPacketLedLastTransitionMs >= RX_PACKET_LED_OFF_MS)) {
+    startRxPacketLedPulse(now);
+  } else {
+    rxPacketLedPending = true;
+  }
+}
+
+static void updateRxPacketLed() {
+  unsigned long now = millis();
+  if (rxPacketLedOn) {
+    if (now - rxPacketLedLastTransitionMs >= RX_PACKET_LED_ON_MS) {
+      digitalWrite(RX_PACKET_LED_PIN, LOW);
+      rxPacketLedOn = false;
+      rxPacketLedLastTransitionMs = now;
+    }
+  } else if (rxPacketLedPending && (now - rxPacketLedLastTransitionMs >= RX_PACKET_LED_OFF_MS)) {
+    startRxPacketLedPulse(now);
+  }
+}
 
 static Button getButtonEnum(uint8_t bit) {
   if (bit > 15) return UNKNOWN;
@@ -222,7 +281,67 @@ static void sendStatusHeartbeat() {
 
   uint8_t buffer[STATUS_MESSAGE_SIZE] = {0};
   encodeStatusMessage(msg, buffer);
-  rfm.send(buffer, sizeof(buffer));
+  if (rfm.send(buffer, sizeof(buffer))) {
+    rfm.waitPacketSent();
+  }
+}
+
+static void printDecodedControlDebug(const ControlMessage &msg) {
+#if RX_PRINT_DECODED_CONTROL
+  unsigned long now = millis();
+  bool changed = !haveDebugState ||
+                 msg.controllerPresent != lastDebugControllerPresent ||
+                 stateChanged(msg.state, lastDebugState);
+  if (!changed && (now - lastControlDebugMs < CONTROL_DEBUG_PERIOD_MS)) return;
+
+  Serial.print(F("RX control seq "));
+  Serial.print(msg.seq);
+  Serial.print(F(" | present: "));
+  Serial.print(msg.controllerPresent ? F("YES") : F("NO"));
+  Serial.print(F(" | RSSI: "));
+  Serial.print(rssiRawRx);
+  Serial.print(F(" | "));
+  printControllerState(msg.state, Serial);
+
+  lastDebugState = msg.state;
+  lastDebugControllerPresent = msg.controllerPresent;
+  haveDebugState = true;
+  lastControlDebugMs = now;
+#else
+  (void)msg;
+#endif
+}
+
+static void printDecodeErrorDebug(const uint8_t *buffer, uint8_t len) {
+#if RX_PRINT_DECODE_ERRORS
+  ++decodeErrorCount;
+  unsigned long now = millis();
+  if (now - lastDecodeErrorMs < DECODE_ERROR_PERIOD_MS) return;
+  lastDecodeErrorMs = now;
+
+  Serial.print(F("RX ignored packet #"));
+  Serial.print(decodeErrorCount);
+  Serial.print(F(" len: "));
+  Serial.print(len);
+  if (len > 0) {
+    Serial.print(F(" version: "));
+    Serial.print(buffer[0]);
+  }
+  if (len > 1) {
+    Serial.print(F(" type: "));
+    Serial.print(buffer[1]);
+  }
+  Serial.println();
+#else
+  (void)buffer;
+  (void)len;
+#endif
+}
+
+static bool isExpectedNonControlPacket(const uint8_t *buffer, uint8_t len) {
+  return len == STATUS_MESSAGE_SIZE &&
+         buffer[0] == PROTOCOL_VERSION &&
+         buffer[1] == PACKET_STATUS;
 }
 
 static void handleIncomingPackets() {
@@ -230,6 +349,7 @@ static void handleIncomingPackets() {
     uint8_t buffer[MAX_WIRE_PACKET_SIZE] = {0};
     uint8_t len = sizeof(buffer);
     if (!rfm.recv(buffer, &len)) continue;
+    noteRxPacketForLed();
     if (len < 2) continue;
 
     ControlMessage msg;
@@ -239,6 +359,11 @@ static void handleIncomingPackets() {
       lastControlPacketMs = millis();
       rssiRawRx = rfm.lastRssi();
       rssiSmoothRx = smoothRssi(rssiRawRx, rssiSmoothRx);
+      printDecodedControlDebug(msg);
+    } else if (isExpectedNonControlPacket(buffer, len)) {
+      // The transmitter also sends status heartbeats; the receiver only acts on control packets.
+    } else {
+      printDecodeErrorDebug(buffer, len);
     }
   }
 }
@@ -287,11 +412,11 @@ static void controlsDecision() {
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial) {
-    ;
-  }
+  maybePrintFirmwareBanner();
 
   pinMode(STEER_PWM, OUTPUT);
+  pinMode(RX_PACKET_LED_PIN, OUTPUT);
+  digitalWrite(RX_PACKET_LED_PIN, LOW);
   pinMode(GAS_PEDAL_PIN, INPUT);
   pinMode(RX_BATTERY_PIN, INPUT);
 
@@ -321,11 +446,14 @@ void setup() {
 }
 
 void loop() {
+  maybePrintFirmwareBanner();
+  updateRxPacketLed();
   handleIncomingPackets();
   receiverBatteryMilliVolts = readReceiverBatteryMilliVolts();
   controlsDecision();
   sendStatusHeartbeat();
   pwmx.update();
+  updateRxPacketLed();
 }
 
 #endif

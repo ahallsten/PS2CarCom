@@ -10,6 +10,7 @@
 #include <avr/pgmspace.h>
 
 #include "ControllerState.h"
+#include "FirmwareInfo.h"
 #include "Protocol.h"
 #include "RadioConfig.h"
 
@@ -56,10 +57,17 @@ static uint8_t motorPercents[4] = {0, 0, 0, 0};
 static ControllerState lastSentState = kNeutralControllerState;
 static bool lastSentControllerPresent = false;
 static uint8_t controlSequence = 0;
+static bool firmwareBannerPrinted = false;
 
 static uint16_t readTransmitterBatteryMilliVolts() {
   // TODO: hook up actual analog measurement
   return 0;
+}
+
+static void maybePrintFirmwareBanner() {
+  if (firmwareBannerPrinted || !Serial) return;
+  printFirmwareBanner(Serial, F("TRANSMITTER"));
+  firmwareBannerPrinted = true;
 }
 
 static void updateCurrentState() {
@@ -82,6 +90,7 @@ static void sendControlHeartbeat() {
   uint8_t buffer[CONTROL_MESSAGE_SIZE] = {0};
   encodeControlMessage(msg, buffer);
   if (!rfm.send(buffer, sizeof(buffer))) return;
+  rfm.waitPacketSent();
 
   lastControlSendMs = now;
   lastSentState = msg.state;
@@ -109,7 +118,9 @@ static void sendStatusHeartbeat() {
 
   uint8_t buffer[STATUS_MESSAGE_SIZE] = {0};
   encodeStatusMessage(msg, buffer);
-  rfm.send(buffer, sizeof(buffer));
+  if (rfm.send(buffer, sizeof(buffer))) {
+    rfm.waitPacketSent();
+  }
 }
 
 static void handleIncomingPackets() {
@@ -173,6 +184,7 @@ static void PS2ControllerCheck() {
 
 void setup() {
   Serial.begin(115200);
+  maybePrintFirmwareBanner();
 
   pinMode(RFM95_RST, OUTPUT);
   digitalWrite(RFM95_RST, HIGH);
@@ -192,6 +204,7 @@ void setup() {
 }
 
 void loop() {
+  maybePrintFirmwareBanner();
   PS2ControllerCheck();
   sendControlHeartbeat();
   handleIncomingPackets();
