@@ -23,15 +23,15 @@
 #endif
 
 // Motor FL (Front Left) Pin Assignments
-static const uint8_t MOTOR_FL_LPWM = 13;
-static const uint8_t MOTOR_FL_RPWM = 12;
+static const uint8_t MOTOR_FL_LPWM = 3; // mcp portA 3 or pin 24
+static const uint8_t MOTOR_FL_RPWM = 2; // mcp portA 2 or pin 23
 static const uint8_t MOTOR_FL_REN = 0; // mcp portB 0 or pin 1
 static const uint8_t MOTOR_FL_LEN = 1; // mcp portB 1 or pin 2
 static const uint8_t MOTOR_FL_RIS = A0;
 static const uint8_t MOTOR_FL_LIS = A1;
 // Motor FR (Front Right) Pin Assignments
-static const uint8_t MOTOR_FR_RPWM = 11;
-static const uint8_t MOTOR_FR_LPWM = 10;
+static const uint8_t MOTOR_FR_RPWM = 1; // mcp portA 1 pin 22
+static const uint8_t MOTOR_FR_LPWM = 0; // mcp portA 0 pin 21
 static const uint8_t MOTOR_FR_REN = 2; // mcp portB 2 or pin 3
 static const uint8_t MOTOR_FR_LEN = 3; // mcp portB 3 or pin 4
 static const uint8_t MOTOR_FR_RIS = A2;
