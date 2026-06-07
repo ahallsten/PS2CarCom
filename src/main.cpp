@@ -1,5 +1,5 @@
 #include "RoleConfig.h"
 
 #if defined(TRANSMITTER) == defined(RECEIVER)
-#error "Define exactly one of TRANSMITTER or RECEIVER in RoleConfig.h"
+#error "Build with exactly one PlatformIO role environment: transmitter or receiver"
 #endif

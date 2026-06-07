@@ -9,11 +9,12 @@ PS2CarCom is a PlatformIO Arduino project for two Adafruit Feather 32u4/RFM95 bo
 - Transmitter: reads a PS2 controller with PsxNewLib and sends control packets over RadioHead `RH_RF95`.
 - Receiver: receives control packets, reads a pedal ADC input, drives a steering PWM output, and controls four BTS7960 motor drivers through an MCP23017 GPIO expander plus software PWM.
 
-This branch has one PlatformIO environment, `feather32u4`. The active role is selected manually in `include/RoleConfig.h`; there are not separate transmitter/receiver environments.
+This branch has separate PlatformIO environments for each firmware role: `transmitter` and `receiver`. Role macros are supplied by `platformio.ini` build flags.
 
 ## First Files To Inspect
 
-- `include/RoleConfig.h`: current firmware role. Exactly one of `TRANSMITTER` or `RECEIVER` must be defined.
+- `platformio.ini`: transmitter/receiver environments and role build flags.
+- `include/RoleConfig.h`: compile-time guard. Exactly one of `TRANSMITTER` or `RECEIVER` must be defined by the active environment.
 - `include/RadioConfig.h`: shared RFM95 pins and frequency.
 - `lib/Protocol/Protocol.h`: wire protocol, packet sizes, version, flags, and encode/decode logic.
 - `src/tx_main.cpp`: PS2 controller handling and transmitter heartbeats.
@@ -28,12 +29,15 @@ This branch has one PlatformIO environment, `feather32u4`. The active role is se
 With a working PlatformIO install:
 
 ```sh
-pio run -e feather32u4
-pio run -e feather32u4 -t upload
-pio device monitor -e feather32u4 -b 115200
+pio run -e transmitter
+pio run -e receiver
+pio run -e transmitter -t upload
+pio run -e receiver -t upload
+pio device monitor -e transmitter -b 115200
+pio device monitor -e receiver -b 115200
 ```
 
-To validate both firmwares, edit `include/RoleConfig.h`, build the receiver, switch the role, then build the transmitter. Do not claim both roles compile unless you actually built both role selections.
+To validate both firmwares, build both `transmitter` and `receiver`. Do not edit `include/RoleConfig.h` to switch roles.
 
 This repo currently has no meaningful tests under `test/`. A build is the minimum software validation; hardware behavior needs bench testing with motors made safe.
 

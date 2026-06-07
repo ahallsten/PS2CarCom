@@ -2,7 +2,7 @@
 
 PS2CarCom is a PlatformIO/Arduino firmware project for a two-microcontroller RC-style vehicle control system. One Adafruit Feather 32u4/RFM95 board acts as the transmitter and reads a PlayStation 2 controller. A second Feather 32u4/RFM95 board acts as the receiver on the vehicle, receives LoRa packets, and drives steering plus four BTS7960 motor drivers.
 
-The current branch builds one role at a time. Select the role in `include/RoleConfig.h`, then build and upload the same `feather32u4` PlatformIO environment to the matching board.
+The project builds the transmitter and receiver as separate PlatformIO environments. Use `-e transmitter` for the remote and `-e receiver` for the vehicle-side controller.
 
 ## Current Architecture
 
@@ -26,7 +26,7 @@ The active source files are:
 
 | Path | Purpose |
 | --- | --- |
-| `include/RoleConfig.h` | Selects `TRANSMITTER` or `RECEIVER`. Exactly one must be defined. |
+| `include/RoleConfig.h` | Compile-time guard that requires exactly one role macro. Roles are selected by PlatformIO environments. |
 | `include/RadioConfig.h` | Shared RFM95 chip-select, reset, interrupt pins, and RF frequency. |
 | `src/main.cpp` | Compile-time guard that rejects invalid role selection. |
 | `src/tx_main.cpp` | Transmitter firmware, compiled only when `TRANSMITTER` is defined. |
@@ -45,11 +45,17 @@ The active source files are:
 The project uses PlatformIO:
 
 ```ini
-[env:feather32u4]
+[env]
 platform = atmelavr
 board = feather32u4
 framework = arduino
 monitor_speed = 115200
+
+[env:transmitter]
+build_flags = -DTRANSMITTER
+
+[env:receiver]
+build_flags = -DRECEIVER
 ```
 
 Declared library dependencies in `platformio.ini` are:
@@ -64,41 +70,40 @@ Active code directly uses RadioHead, PsxNewLib, DigitalIO, SPI, Wire, and the Ad
 
 ## Build, Upload, And Monitor
 
-Install PlatformIO through the VS Code extension or the PlatformIO CLI. Then select the firmware role in `include/RoleConfig.h`.
+Install PlatformIO through the VS Code extension or the PlatformIO CLI. Select the firmware role with the PlatformIO environment name.
 
-For the receiver, the file currently contains:
-
-```cpp
-// #define TRANSMITTER
-#define RECEIVER
-```
-
-For the transmitter, switch it to:
-
-```cpp
-#define TRANSMITTER
-// #define RECEIVER
-```
-
-Build:
+Build the transmitter:
 
 ```sh
-pio run -e feather32u4
+pio run -e transmitter
 ```
 
-Upload to the connected Feather:
+Build the receiver:
 
 ```sh
-pio run -e feather32u4 -t upload
+pio run -e receiver
+```
+
+Upload the transmitter:
+
+```sh
+pio run -e transmitter -t upload
+```
+
+Upload the receiver:
+
+```sh
+pio run -e receiver -t upload
 ```
 
 Open the serial monitor at the configured speed:
 
 ```sh
-pio device monitor -e feather32u4 -b 115200
+pio device monitor -e transmitter -b 115200
+pio device monitor -e receiver -b 115200
 ```
 
-There are no separate PlatformIO environments for transmitter and receiver yet, so changing roles currently means editing `include/RoleConfig.h` and rebuilding.
+`include/RoleConfig.h` should not be edited to choose a role. It only checks that exactly one role macro was provided by the selected PlatformIO environment.
 
 ## Radio Configuration
 
@@ -254,7 +259,7 @@ This code can move a real vehicle. Test changes with motor power disabled, the v
 Places to tune behavior:
 
 - Radio pins/frequency: `include/RadioConfig.h`
-- Role selection: `include/RoleConfig.h`
+- Role build flags/environments: `platformio.ini`
 - PS2 pins: `src/tx_main.cpp`
 - Motor, steering, pedal, and battery pins: `src/rx_main.cpp`
 - Stick dead zones and stick-to-PWM mapping: the `AxisMap` constants in `src/rx_main.cpp`
@@ -273,7 +278,7 @@ The steering output is `analogWrite()` PWM on pin `3`; the active code does not 
 
 ## Troubleshooting
 
-- `RFM95 initialization failed`: check RFM95 power, SPI wiring, CS/reset/interrupt pins in `include/RadioConfig.h`, and that the board matches the `feather32u4` environment.
+- `RFM95 initialization failed`: check RFM95 power, SPI wiring, CS/reset/interrupt pins in `include/RadioConfig.h`, and that the board matches the Feather 32u4 PlatformIO environments.
 - `mcp begin error`: check MCP23017 power, SDA/SCL wiring, and I2C address. The code does not pass an explicit address to `mcp.begin_I2C()`.
 - Controller repeatedly appears and disappears: check PS2 wiring, controller power level, and the ATT/CMD/DAT/CLK pins in `src/tx_main.cpp`.
 - Receiver link never becomes OK: confirm both boards are built from the same protocol version, have the same radio frequency, and that one board is built as transmitter while the other is built as receiver.
@@ -282,7 +287,7 @@ The steering output is `analogWrite()` PWM on pin `3`; the active code does not 
 
 ## Known Limitations And Open Questions
 
-- The repo has one PlatformIO environment and manual role selection; there are no independent TX/RX build environments yet.
+- Transmitter and receiver are separate PlatformIO environments, but upload ports are not pinned in `platformio.ini`; select the correct connected board when uploading.
 - There are no project tests in `test/` beyond the default PlatformIO README.
 - Transmitter battery measurement is stubbed and always reports `0` mV.
 - Receiver battery scaling is hard-coded but the sensing circuit is not documented.
