@@ -32,31 +32,31 @@
 #endif
 
 // Motor FL (Front Left) Pin Assignments
-static const uint8_t MOTOR_FL_LPWM = 3; // mcp portA 3 or pin 24
-static const uint8_t MOTOR_FL_RPWM = 2; // mcp portA 2 or pin 23
-static const uint8_t MOTOR_FL_REN = 0; // mcp portB 0 or pin 1
-static const uint8_t MOTOR_FL_LEN = 1; // mcp portB 1 or pin 2
+static const uint8_t MOTOR_FL_RPWM = 0; // mcp port A0 or pin 23
+static const uint8_t MOTOR_FL_LPWM = 1; // mcp port A1 or pin 24
+static const uint8_t MOTOR_FL_REN = 10; // mcp port B2 or pin 1
+static const uint8_t MOTOR_FL_LEN = 11; // mcp port B3 or pin 2
 static const uint8_t MOTOR_FL_RIS = A0;
 static const uint8_t MOTOR_FL_LIS = A1;
 // Motor FR (Front Right) Pin Assignments
-static const uint8_t MOTOR_FR_RPWM = 1; // mcp portA 1 pin 22
-static const uint8_t MOTOR_FR_LPWM = 0; // mcp portA 0 pin 21
-static const uint8_t MOTOR_FR_REN = 2; // mcp portB 2 or pin 3
-static const uint8_t MOTOR_FR_LEN = 3; // mcp portB 3 or pin 4
+static const uint8_t MOTOR_FR_RPWM = 6; // mcp port A6 pin 22 old 6
+static const uint8_t MOTOR_FR_LPWM = 7; // mcp port A7 pin 21 old 7
+static const uint8_t MOTOR_FR_REN = 12; // mcp port B4 or pin 3
+static const uint8_t MOTOR_FR_LEN = 13; // mcp port B5 or pin 4
 static const uint8_t MOTOR_FR_RIS = A2;
 static const uint8_t MOTOR_FR_LIS = A3;
 // Motor RL (Rear Left) Pin Assignments
-static const uint8_t MOTOR_RL_RPWM = 7; // mcp portA or pin 28
-static const uint8_t MOTOR_RL_LPWM = 6; // mcp portA or pin 27
-static const uint8_t MOTOR_RL_REN = 4; // mcp portB or pin 5
-static const uint8_t MOTOR_RL_LEN = 5; // mcp portB or pin 6
+static const uint8_t MOTOR_RL_RPWM = 2; // mcp port A2 or pin 28
+static const uint8_t MOTOR_RL_LPWM = 3; // mcp port A3 or pin 27
+static const uint8_t MOTOR_RL_REN = 8; // mcp port B0 or pin 5
+static const uint8_t MOTOR_RL_LEN = 9; // mcp port B1 or pin 6
 static const uint8_t MOTOR_RL_RIS = A4;
 static const uint8_t MOTOR_RL_LIS = A5;
 // Motor RR (Rear Right) Pin Assignments
-static const uint8_t MOTOR_RR_RPWM = 5; // mcp portA or pin 26
-static const uint8_t MOTOR_RR_LPWM = 4; // mcp portA or pin 25
-static const uint8_t MOTOR_RR_REN = 6; // mcp portB or pin 7
-static const uint8_t MOTOR_RR_LEN = 7; // mcp portB or pin 8
+static const uint8_t MOTOR_RR_RPWM = 4; // mcp port A4 or pin 26
+static const uint8_t MOTOR_RR_LPWM = 5; // mcp port A5 or pin 25
+static const uint8_t MOTOR_RR_REN = 14; // mcp port B6 or pin 7
+static const uint8_t MOTOR_RR_LEN = 15; // mcp port B7 or pin 8
 static const uint8_t MOTOR_RR_RIS = 6;
 static const uint8_t MOTOR_RR_LIS = 9;
 // Other Pin Assignments
