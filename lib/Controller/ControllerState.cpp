@@ -37,37 +37,50 @@ void ButtonEdgeTracker::update(uint16_t current,
   _previous = current;
 }
 
+void printLogPrefix(Print &out, const __FlashStringHelper *role,
+                    const __FlashStringHelper *tag, uint8_t seq) {
+  out.print('[');
+  out.print(millis());
+  out.print(F("] "));
+  out.print(role);
+  out.print(' ');
+  out.print(tag);
+  out.print(F(" seq="));
+  out.print(seq);
+  out.print(' ');
+}
+
 void printControllerState(const ControllerState &state, Print &out) {
-  out.print(F("ButtonWord: "));
+  out.print(F("btn="));
   for (int i = 15; i >= 0; --i) {
     out.print(bitRead(state.buttonWord, i));
   }
 
-  out.print(F(" | LX: "));
+  out.print(F(" LX="));
   out.print(state.leftX);
-  out.print(F(" | LY: "));
+  out.print(F(" LY="));
   out.print(state.leftY);
-  out.print(F(" | RX: "));
+  out.print(F(" RX="));
   out.print(state.rightX);
-  out.print(F(" | RY: "));
+  out.print(F(" RY="));
   out.println(state.rightY);
 }
 
 void printDriveDebug(int16_t leftY, int16_t leftX, int16_t rightY, int16_t rightX,
                      bool enabled, bool tankMode, bool parkingBrake, Print &out) {
-  out.print(F(" | pwmLY "));
+  out.print(F("pwmLY="));
   out.print(leftY);
-  out.print(F(" | pwmLX "));
+  out.print(F(" pwmLX="));
   out.print(leftX);
-  out.print(F(" | pwmRY "));
+  out.print(F(" pwmRY="));
   out.print(rightY);
-  out.print(F(" | pwmSTR "));
+  out.print(F(" pwmSTR="));
   out.print(rightX);
 
-  out.print(F(" | EN: "));
+  out.print(F(" EN="));
   out.print(enabled ? F("ON") : F("OFF"));
-  out.print(F(" | T_MD: "));
+  out.print(F(" TMD="));
   out.print(tankMode ? F("ON") : F("OFF"));
-  out.print(F(" | p_Brk: "));
+  out.print(F(" PBRK="));
   out.println(parkingBrake ? F("ON") : F("OFF"));
 }

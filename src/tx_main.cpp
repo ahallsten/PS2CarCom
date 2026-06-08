@@ -57,6 +57,8 @@ static uint8_t motorPercents[4] = {0, 0, 0, 0};
 static ControllerState lastSentState = kNeutralControllerState;
 static bool lastSentControllerPresent = false;
 static uint8_t controlSequence = 0;
+static uint8_t lastSentSeq = 0;
+static uint8_t lastAckedSeq = 0;
 static bool firmwareBannerPrinted = false;
 
 static uint16_t readTransmitterBatteryMilliVolts() {
@@ -95,9 +97,12 @@ static void sendControlHeartbeat() {
   lastControlSendMs = now;
   lastSentState = msg.state;
   lastSentControllerPresent = msg.controllerPresent;
+  lastSentSeq = msg.seq;
   ++controlSequence;
 
   if (changed && msg.controllerPresent) {
+    printLogPrefix(Serial, F("TX"), F("CTRL"), msg.seq);
+    Serial.print(F("present=Y "));
     printControllerState(msg.state, Serial);
   }
 }
@@ -138,6 +143,19 @@ static void handleIncomingPackets() {
       rssiSmoothTx = smoothRssi(rssiRawTx, rssiSmoothTx);
       receiverBatteryMilliVolts = msg.batteryMv;
       memcpy(motorPercents, msg.motorPct, sizeof(motorPercents));
+      lastAckedSeq = msg.ackSeq;
+
+      // ACK line: seq= is the last control packet the receiver decoded, so
+      // lastsent - ackedSeq shows how far behind the link is running.
+      printLogPrefix(Serial, F("TX"), F("ACK"), msg.ackSeq);
+      Serial.print(F("lastsent="));
+      Serial.print(lastSentSeq);
+      Serial.print(F(" link="));
+      Serial.print(msg.linkOk ? F("OK") : F("NO"));
+      Serial.print(F(" rssi="));
+      Serial.print(rssiRawTx);
+      Serial.print(F(" rxbatt="));
+      Serial.println(receiverBatteryMilliVolts);
     }
   }
 }
@@ -195,6 +213,9 @@ void setup() {
     }
   }
   rfm.setFrequency(RF95_FREQ);
+  // Fast+short-range LoRa: ~11ms time-on-air vs ~46ms at the default
+  // Bw125Cr45Sf128. Must match the receiver's modem config.
+  rfm.setModemConfig(RH_RF95::Bw500Cr45Sf128);
   Serial.println("RFM95 initialized: TRANSMITTER");
 
   fastPinMode(PIN_BUTTONPRESS, OUTPUT);

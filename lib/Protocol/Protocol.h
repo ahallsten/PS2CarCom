@@ -11,7 +11,7 @@
  * Change this only when both transmitter and receiver decode paths are updated
  * or when backward-compatible decode logic is added.
  */
-static const uint8_t PROTOCOL_VERSION = 1;
+static const uint8_t PROTOCOL_VERSION = 2;
 
 /**
  * @brief Packet type byte values used after the protocol version byte.
@@ -84,6 +84,15 @@ struct StatusMessage {
 
   /** Motor command magnitudes as percentages: FL, FR, RL, RR. */
   uint8_t motorPct[4] = {0, 0, 0, 0};
+
+  /**
+   * @brief Last control sequence number the sender received (lightweight ACK).
+   *
+   * The receiver sets this to the seq of the most recent control packet it
+   * decoded, so the transmitter can confirm which control packets made it
+   * across without a per-packet handshake. Unused/0 in the TX->RX direction.
+   */
+  uint8_t ackSeq = 0;
 };
 
 /**
@@ -105,7 +114,7 @@ static const ControllerState kNeutralControllerState = { 0, 127, 127, 127, 127 }
 static const uint8_t CONTROL_MESSAGE_SIZE = 10;
 
 /** @brief Encoded byte length of a status packet. */
-static const uint8_t STATUS_MESSAGE_SIZE = 13;
+static const uint8_t STATUS_MESSAGE_SIZE = 14;
 
 /** @brief Largest packet buffer needed by the current protocol. */
 static const uint8_t MAX_WIRE_PACKET_SIZE = STATUS_MESSAGE_SIZE;
@@ -213,6 +222,7 @@ inline void encodeStatusMessage(const StatusMessage &msg,
   writeI16LE(out + 5, msg.rssiSmooth);
   writeU16LE(out + 7, msg.batteryMv);
   memcpy(out + 9, msg.motorPct, sizeof(msg.motorPct));
+  out[13] = msg.ackSeq;
 }
 
 /**
@@ -236,6 +246,7 @@ inline bool decodeStatusMessage(const uint8_t *data, uint8_t len, StatusMessage 
   msg.rssiSmooth = readI16LE(data + 5);
   msg.batteryMv = readU16LE(data + 7);
   memcpy(msg.motorPct, data + 9, sizeof(msg.motorPct));
+  msg.ackSeq = data[13];
   return true;
 }
 

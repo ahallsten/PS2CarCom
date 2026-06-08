@@ -74,7 +74,24 @@ private:
 };
 
 /**
+ * @brief Print a standardized log-line prefix shared by both firmware roles.
+ *
+ * Emits "[<millis>] <role> <tag> seq=<seq> " with no trailing newline, so the
+ * caller can append message-specific key=value fields. The millis() timestamp
+ * and seq let transmitter and receiver logs be correlated against each other.
+ *
+ * @param out Destination stream, usually Serial.
+ * @param role Short role token, e.g. F("TX") or F("RX").
+ * @param tag Short message-kind token, e.g. F("CTRL"), F("DRV"), F("ACK").
+ * @param seq Message ID (control sequence number) this line refers to.
+ */
+void printLogPrefix(Print &out, const __FlashStringHelper *role,
+                    const __FlashStringHelper *tag, uint8_t seq);
+
+/**
  * @brief Print a controller snapshot to a Print-compatible stream.
+ *
+ * Emits compact "btn=<16bit> LX=.. LY=.. RX=.. RY=.." with a trailing newline.
  *
  * @param state State to print.
  * @param out Destination stream, usually Serial.

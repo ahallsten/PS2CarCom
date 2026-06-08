@@ -63,7 +63,7 @@ Always preserve link-loss behavior unless explicitly changing failsafe design: s
 
 ## Protocol Guidance
 
-`lib/Protocol/Protocol.h` is compatibility-critical. Current protocol version is `1`.
+`lib/Protocol/Protocol.h` is compatibility-critical. Current protocol version is `2`.
 
 If changing packet contents:
 

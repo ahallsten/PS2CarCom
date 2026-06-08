@@ -135,6 +135,12 @@ static bool tankMode = false;
 static int16_t maximumSpeed = 255;
 static const int16_t kMinimumSpeed = 25;
 
+// Reject re-triggers of the same button within this window. PS2 pressure
+// buttons (e.g. R2) can flicker across the digital threshold and would
+// otherwise rapid-toggle latched actions like drive enable.
+static const unsigned long BUTTON_DEBOUNCE_MS = 200;
+static unsigned long lastButtonActionMs[16] = {0};
+
 static int16_t leftYPWM = 0;
 static int16_t leftXPWM = 0;
 static int16_t rightYPWM = 0;
@@ -145,10 +151,11 @@ static const AxisMap kLeftXMap = { 90, 90, 0, 145, 145, 255, 0, 255 };
 static const AxisMap kRightYMap = { 105, 105, 0, 133, 133, 255, 0, 255 };
 static const AxisMap kRightXMap = { 105, 105, 0, 135, 135, 255, 0, 255 };
 
-static const unsigned long HEARTBEAT_PERIOD_MS = 100;
+static const unsigned long STATUS_PERIOD_MS = 250;
 static const unsigned long LINK_TIMEOUT_MS = 500;
 static unsigned long lastControlPacketMs = 0;
 static unsigned long lastStatusSendMs = 0;
+static uint8_t lastControlSeq = 0;
 static int16_t rssiRawRx = 0;
 static int16_t rssiSmoothRx = 0;
 static uint16_t receiverBatteryMilliVolts = 0;
@@ -210,6 +217,11 @@ static Button getButtonEnum(uint8_t bit) {
 }
 
 static void handleButtonPress(uint8_t bit) {
+  if (bit > 15) return;
+  unsigned long now = millis();
+  if (now - lastButtonActionMs[bit] < BUTTON_DEBOUNCE_MS) return;
+  lastButtonActionMs[bit] = now;
+
   switch (getButtonEnum(bit)) {
     case SELECT:
       parkingBrake = !parkingBrake;
@@ -268,7 +280,7 @@ static bool hasFreshControlLink() {
 
 static void sendStatusHeartbeat() {
   unsigned long now = millis();
-  if (now - lastStatusSendMs < HEARTBEAT_PERIOD_MS) return;
+  if (now - lastStatusSendMs < STATUS_PERIOD_MS) return;
   lastStatusSendMs = now;
 
   StatusMessage msg;
@@ -277,6 +289,7 @@ static void sendStatusHeartbeat() {
   msg.rssiRaw = rssiRawRx;
   msg.rssiSmooth = rssiSmoothRx;
   msg.batteryMv = receiverBatteryMilliVolts;
+  msg.ackSeq = lastControlSeq;
   drive.getMotorPercents(msg.motorPct);
 
   uint8_t buffer[STATUS_MESSAGE_SIZE] = {0};
@@ -294,13 +307,12 @@ static void printDecodedControlDebug(const ControlMessage &msg) {
                  stateChanged(msg.state, lastDebugState);
   if (!changed && (now - lastControlDebugMs < CONTROL_DEBUG_PERIOD_MS)) return;
 
-  Serial.print(F("RX control seq "));
-  Serial.print(msg.seq);
-  Serial.print(F(" | present: "));
-  Serial.print(msg.controllerPresent ? F("YES") : F("NO"));
-  Serial.print(F(" | RSSI: "));
+  printLogPrefix(Serial, F("RX"), F("CTRL"), msg.seq);
+  Serial.print(F("present="));
+  Serial.print(msg.controllerPresent ? F("Y") : F("N"));
+  Serial.print(F(" rssi="));
   Serial.print(rssiRawRx);
-  Serial.print(F(" | "));
+  Serial.print(' ');
   printControllerState(msg.state, Serial);
 
   lastDebugState = msg.state;
@@ -319,16 +331,17 @@ static void printDecodeErrorDebug(const uint8_t *buffer, uint8_t len) {
   if (now - lastDecodeErrorMs < DECODE_ERROR_PERIOD_MS) return;
   lastDecodeErrorMs = now;
 
-  Serial.print(F("RX ignored packet #"));
+  printLogPrefix(Serial, F("RX"), F("ERR"), 0);
+  Serial.print(F("ignored#"));
   Serial.print(decodeErrorCount);
-  Serial.print(F(" len: "));
+  Serial.print(F(" len="));
   Serial.print(len);
   if (len > 0) {
-    Serial.print(F(" version: "));
+    Serial.print(F(" ver="));
     Serial.print(buffer[0]);
   }
   if (len > 1) {
-    Serial.print(F(" type: "));
+    Serial.print(F(" type="));
     Serial.print(buffer[1]);
   }
   Serial.println();
@@ -356,6 +369,7 @@ static void handleIncomingPackets() {
     if (decodeControlMessage(buffer, len, msg)) {
       currentState = msg.state;
       remoteControllerPresent = msg.controllerPresent;
+      lastControlSeq = msg.seq;
       lastControlPacketMs = millis();
       rssiRawRx = rfm.lastRssi();
       rssiSmoothRx = smoothRssi(rssiRawRx, rssiSmoothRx);
@@ -367,6 +381,7 @@ static void handleIncomingPackets() {
     }
   }
 }
+
 
 static int16_t lastDbgLeftY = 0;
 static int16_t lastDbgLeftX = 0;
@@ -391,6 +406,7 @@ static void maybePrintDriveDebug() {
                  parkingBrake != lastDbgParkingBrake;
   if (!changed && (now - lastDriveDebugMs < CONTROL_DEBUG_PERIOD_MS)) return;
 
+  printLogPrefix(Serial, F("RX"), F("DRV"), lastControlSeq);
   printDriveDebug(leftYPWM, leftXPWM, rightYPWM, rightXPWM,
                   driveEnabled, tankMode, parkingBrake, Serial);
 
@@ -478,6 +494,10 @@ void setup() {
   }
 
   rfm.setFrequency(RF95_FREQ);
+  // Fast+short-range LoRa: ~11ms time-on-air vs ~46ms at the default
+  // Bw125Cr45Sf128. Cuts the per-send blocking that was stalling the loop and
+  // software PWM. Must match the transmitter's modem config.
+  rfm.setModemConfig(RH_RF95::Bw500Cr45Sf128);
   Serial.println("RFM95 initialized: RECEIVER");
 }
 

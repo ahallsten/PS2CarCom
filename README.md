@@ -212,7 +212,7 @@ The packet format is implemented in `lib/Protocol/Protocol.h`. Both packet types
 
 | Byte | Meaning |
 | --- | --- |
-| `0` | Protocol version, currently `1` |
+| `0` | Protocol version, currently `2` |
 | `1` | Packet type: `1` for control, `2` for status |
 
 Control packet, 10 bytes total:
@@ -229,7 +229,7 @@ Control packet, 10 bytes total:
 | `8` | Right stick X |
 | `9` | Right stick Y |
 
-Status packet, 13 bytes total:
+Status packet, 14 bytes total:
 
 | Byte(s) | Meaning |
 | --- | --- |
@@ -240,8 +240,21 @@ Status packet, 13 bytes total:
 | `5..6` | Smoothed RSSI, signed 16-bit little-endian |
 | `7..8` | Battery millivolts, unsigned 16-bit little-endian |
 | `9..12` | Motor command percentages in front-left, front-right, rear-left, rear-right order |
+| `13` | ACK echo: last control sequence number the receiver decoded (`0` in the transmitter-to-receiver direction) |
 
-The transmitter sends control packets immediately on state changes, otherwise at least every 50 ms. Both sides send status heartbeats every 100 ms. The receiver considers the control link stale after 500 ms without a fresh control packet from a present controller.
+The transmitter sends control packets immediately on state changes, otherwise at least every 50 ms, and status heartbeats every 100 ms. The receiver sends status heartbeats every 250 ms. The receiver considers the control link stale after 500 ms without a fresh control packet from a present controller.
+
+Both radios use the `Bw500Cr45Sf128` LoRa modem config (fast, short range) so each transmission is ~11 ms on air instead of ~46 ms at the RadioHead default; this keeps the receiver loop and software PWM from stalling. The transmitter and receiver must always use the same modem config.
+
+### Serial log format
+
+Both firmwares print one standardized line per logged event:
+
+```
+[<millis>] <ROLE> <TAG> seq=<id> <key=value ...>
+```
+
+`ROLE` is `TX` or `RX`; `TAG` is `CTRL` (controller state), `DRV` (receiver drive mapping), `ACK` (receiver-acknowledged control seq, printed by the transmitter), or `ERR` (ignored packet). `seq` is the control sequence number the line refers to, so transmitter and receiver logs can be correlated and the `ACK` line's `seq` vs. `lastsent` shows how far behind the link is running.
 
 ## Failsafe And Safety Behavior
 
