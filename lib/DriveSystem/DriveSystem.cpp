@@ -20,19 +20,32 @@ void DriveSystem::begin() {
 }
 
 void DriveSystem::setEnabled(bool enabled) {
+  if (_enabled == enabled) return;
   _enabled = enabled;
-  if (_enabled) enableAll();
-  else coastAll();
+  if (_enabled) {
+    enableAll();
+  } else {
+    coastAll();
+    recordCmds(0, 0, 0, 0);
+  }
 }
 
 void DriveSystem::setParkingBrake(bool enabled) {
+  if (_parkingBrake == enabled) return;
   _parkingBrake = enabled;
-  if (_parkingBrake) brakeAll();
+  if (_parkingBrake) {
+    brakeAll();
+    recordCmds(0, 0, 0, 0);
+  }
 }
 
 void DriveSystem::applyDrive(int16_t fl, int16_t fr, int16_t rl, int16_t rr) {
+  if (!_enabled) {
+    recordCmds(0, 0, 0, 0);
+    return;
+  }
+
   if (_parkingBrake) {
-    brakeAll();
     recordCmds(0, 0, 0, 0);
     return;
   }

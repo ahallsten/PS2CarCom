@@ -79,6 +79,7 @@ private:
   PinDef _L_IS, _R_IS;
   int8_t _rPwmCh = -1;
   int8_t _lPwmCh = -1;
+  int8_t _lastDir = 0;
 
   /** @brief Route pinMode() to either the MCU or MCP23017 based on the PinDef. */
   void pinModeX(PinDef pin, uint8_t mode);

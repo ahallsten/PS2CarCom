@@ -99,6 +99,16 @@ public:
   void setDuty(int8_t idx, uint8_t duty);
 
   /**
+   * @brief Immediately drive a channel low and set its duty cycle to zero.
+   *
+   * This is used for H-bridge break-before-make direction changes, where the
+   * inactive side must be physically low before the opposite side receives PWM.
+   *
+   * @param idx Channel index returned by addChannel().
+   */
+  void forceLow(int8_t idx);
+
+  /**
    * @brief Set a channel PWM period.
    *
    * Invalid or unused channel indexes are ignored.

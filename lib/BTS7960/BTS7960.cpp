@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include "BTS7960.h"
 
+static const unsigned int kDirectionDeadTimeUs = 200;
+
 BTS7960::BTS7960(Adafruit_MCP23X17 *mcp,
                  SoftwarePWMX *pwmx,
                  PinDef RPWM, PinDef LPWM,
@@ -39,34 +41,52 @@ void BTS7960::begin() {
 void BTS7960::drive(int16_t pwm) {
   if (_rPwmCh < 0 || _lPwmCh < 0) return;
   pwm = constrain(pwm, -255, 255);
-  if (pwm > 0) {
-    _pwmx->setDuty(_rPwmCh, static_cast<uint8_t>(pwm));
-    _pwmx->setDuty(_lPwmCh, 0);
-  } else if (pwm < 0) {
-    _pwmx->setDuty(_rPwmCh, 0);
-    _pwmx->setDuty(_lPwmCh, static_cast<uint8_t>(-pwm));
-  } else {
+  if (pwm == 0) {
     brake();
+    return;
   }
+
+  int8_t dir = (pwm > 0) ? 1 : -1;
+  uint8_t duty = static_cast<uint8_t>(abs(pwm));
+
+  if (dir != _lastDir) {
+    _pwmx->forceLow(_rPwmCh);
+    _pwmx->forceLow(_lPwmCh);
+    if (_lastDir != 0) {
+      delayMicroseconds(kDirectionDeadTimeUs);
+    }
+  }
+
+  if (dir > 0) {
+    _pwmx->setDuty(_rPwmCh, duty);
+  } else {
+    _pwmx->setDuty(_lPwmCh, duty);
+  }
+
+  _lastDir = dir;
 }
 
 void BTS7960::brake() {
   if (_rPwmCh < 0 || _lPwmCh < 0) return;
-  _pwmx->setDuty(_rPwmCh, 0);
-  _pwmx->setDuty(_lPwmCh, 0);
+  _pwmx->forceLow(_rPwmCh);
+  _pwmx->forceLow(_lPwmCh);
+  _lastDir = 0;
 }
 
 void BTS7960::coast() {
+  brake();
   digitalWriteX(_L_EN, LOW);
   digitalWriteX(_R_EN, LOW);
 }
 
 void BTS7960::cwBrake() {
+  brake();
   digitalWriteX(_R_EN, 1);
   digitalWriteX(_L_EN, 0);
 }
 
 void BTS7960::ccwBrake() {
+  brake();
   digitalWriteX(_R_EN, 0);
   digitalWriteX(_L_EN, 1);
 }

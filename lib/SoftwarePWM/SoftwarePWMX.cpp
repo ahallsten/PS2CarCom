@@ -55,8 +55,28 @@ void SoftwarePWMX::removeChannel(int8_t idx) {
 void SoftwarePWMX::setDuty(int8_t idx, uint8_t duty) {
   if (idx < 0 || idx >= _max) return;
   if (_ch[idx].pinDef.pin == 255) return;
+  if (duty == 0) {
+    forceLow(idx);
+    return;
+  }
+  if (_ch[idx].duty == duty) return;
   _ch[idx].duty = duty;
   _ch[idx].on_time_us = dutyToMicros(duty, _ch[idx].period_us);
+}
+
+void SoftwarePWMX::forceLow(int8_t idx) {
+  if (idx < 0 || idx >= _max) return;
+  if (_ch[idx].pinDef.pin == 255) return;
+
+  bool wasHigh = _ch[idx].state;
+  _ch[idx].duty = 0;
+  _ch[idx].on_time_us = 0;
+  _ch[idx].last_time_us = micros();
+  _ch[idx].state = false;
+
+  if (wasHigh) {
+    digitalWriteX(_ch[idx].pinDef, LOW);
+  }
 }
 
 void SoftwarePWMX::setPeriod(int8_t idx, unsigned long period_us) {

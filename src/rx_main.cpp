@@ -478,6 +478,7 @@ void setup() {
       Serial.println("mcp error");
     }
   }
+  Wire.setClock(400000);
 
   drive.begin();
   drive.setEnabled(false);
