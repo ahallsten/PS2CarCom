@@ -22,7 +22,7 @@ This branch has separate PlatformIO environments for each firmware role: `transm
 - `lib/DriveSystem/`, `lib/BTS7960/`, `lib/SoftwarePWM/`: motor driver behavior.
 - `lib/AxisMap/` and `lib/Controller/`: stick mapping, button edge tracking, and debug printing.
 
-`lib/Joystick`, `lib/MCPPWM`, `lib/Utils`, and `sketchPad.txt` are currently unused by the active TX/RX firmware. Treat them as legacy or experimental unless a task says otherwise.
+`sketchPad.txt` is currently unused by the active TX/RX firmware. Treat it as legacy or experimental unless a task says otherwise. (The former unused `lib/Joystick`, `lib/MCPPWM`, and `lib/Utils` libraries were removed; `SoftwarePWMX` is the sole MCP/MCU software-PWM path.)
 
 ## Build And Validation Commands
 

@@ -368,6 +368,43 @@ static void handleIncomingPackets() {
   }
 }
 
+static int16_t lastDbgLeftY = 0;
+static int16_t lastDbgLeftX = 0;
+static int16_t lastDbgRightY = 0;
+static int16_t lastDbgRightX = 0;
+static bool lastDbgEnabled = false;
+static bool lastDbgTankMode = false;
+static bool lastDbgParkingBrake = false;
+static bool haveDriveDebug = false;
+static unsigned long lastDriveDebugMs = 0;
+
+// Mirror printDecodedControlDebug's gating: only emit the drive line when
+// something changed or once per CONTROL_DEBUG_PERIOD_MS. Printing it every loop
+// saturates the serial TX buffer and stalls loop(), which backlogs every other
+// debug line and makes input look laggy/bursty.
+static void maybePrintDriveDebug() {
+  unsigned long now = millis();
+  bool changed = !haveDriveDebug ||
+                 leftYPWM != lastDbgLeftY || leftXPWM != lastDbgLeftX ||
+                 rightYPWM != lastDbgRightY || rightXPWM != lastDbgRightX ||
+                 driveEnabled != lastDbgEnabled || tankMode != lastDbgTankMode ||
+                 parkingBrake != lastDbgParkingBrake;
+  if (!changed && (now - lastDriveDebugMs < CONTROL_DEBUG_PERIOD_MS)) return;
+
+  printDriveDebug(leftYPWM, leftXPWM, rightYPWM, rightXPWM,
+                  driveEnabled, tankMode, parkingBrake, Serial);
+
+  lastDbgLeftY = leftYPWM;
+  lastDbgLeftX = leftXPWM;
+  lastDbgRightY = rightYPWM;
+  lastDbgRightX = rightXPWM;
+  lastDbgEnabled = driveEnabled;
+  lastDbgTankMode = tankMode;
+  lastDbgParkingBrake = parkingBrake;
+  haveDriveDebug = true;
+  lastDriveDebugMs = now;
+}
+
 static void controlsDecision() {
   if (!hasFreshControlLink()) {
     currentState = kNeutralControllerState;
@@ -406,8 +443,7 @@ static void controlsDecision() {
   uint8_t steerPwm = static_cast<uint8_t>(constrain(rightXPWM + 127, 0, 255));
   analogWrite(STEER_PWM, steerPwm);
 
-  printDriveDebug(leftYPWM, leftXPWM, rightYPWM, rightXPWM,
-                  driveEnabled, tankMode, parkingBrake, Serial);
+  maybePrintDriveDebug();
 }
 
 void setup() {
