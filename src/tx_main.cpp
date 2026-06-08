@@ -61,6 +61,20 @@ static uint8_t lastSentSeq = 0;
 static uint8_t lastAckedSeq = 0;
 static bool firmwareBannerPrinted = false;
 
+struct AxisConditioning {
+  uint8_t lowDead;
+  uint8_t highDead;
+  uint8_t center;
+  uint8_t changeThreshold;
+};
+
+static const uint8_t kAxisCenter = 128;
+static const uint8_t kAxisChangeThreshold = 4;
+static const AxisConditioning kLeftXAxis = { 90, 145, kAxisCenter, kAxisChangeThreshold };
+static const AxisConditioning kLeftYAxis = { 110, 145, kAxisCenter, kAxisChangeThreshold };
+static const AxisConditioning kRightXAxis = { 105, 135, kAxisCenter, kAxisChangeThreshold };
+static const AxisConditioning kRightYAxis = { 105, 133, kAxisCenter, kAxisChangeThreshold };
+
 static uint16_t readTransmitterBatteryMilliVolts() {
   // TODO: hook up actual analog measurement
   return 0;
@@ -72,10 +86,34 @@ static void maybePrintFirmwareBanner() {
   firmwareBannerPrinted = true;
 }
 
+static uint8_t conditionAxisValue(uint8_t raw, uint8_t previous,
+                                  const AxisConditioning &conditioning) {
+  if (raw >= conditioning.lowDead && raw <= conditioning.highDead) {
+    return conditioning.center;
+  }
+
+  uint8_t delta = (raw > previous) ? (raw - previous) : (previous - raw);
+  if (delta < conditioning.changeThreshold) {
+    return previous;
+  }
+
+  return raw;
+}
+
 static void updateCurrentState() {
+  uint8_t leftX = 0;
+  uint8_t leftY = 0;
+  uint8_t rightX = 0;
+  uint8_t rightY = 0;
+
   currentState.buttonWord = psx.getButtonWord();
-  psx.getLeftAnalog(currentState.leftX, currentState.leftY);
-  psx.getRightAnalog(currentState.rightX, currentState.rightY);
+  psx.getLeftAnalog(leftX, leftY);
+  psx.getRightAnalog(rightX, rightY);
+
+  currentState.leftX = conditionAxisValue(leftX, currentState.leftX, kLeftXAxis);
+  currentState.leftY = conditionAxisValue(leftY, currentState.leftY, kLeftYAxis);
+  currentState.rightX = conditionAxisValue(rightX, currentState.rightX, kRightXAxis);
+  currentState.rightY = conditionAxisValue(rightY, currentState.rightY, kRightYAxis);
 }
 
 static void sendControlHeartbeat() {
