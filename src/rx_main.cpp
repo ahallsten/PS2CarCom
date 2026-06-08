@@ -60,7 +60,12 @@ static const uint8_t MOTOR_RR_LEN = 15; // mcp port B7 or pin 8
 static const uint8_t MOTOR_RR_RIS = 6;
 static const uint8_t MOTOR_RR_LIS = 9;
 // Other Pin Assignments
-static const uint8_t STEER_PWM = 3;
+// NOTE: must NOT be pin 3. On the Feather 32u4, pin 3 (PD0) is the I2C SCL line
+// used by the MCP23017. Driving analogWrite() on pin 3 hijacks SCL and corrupts
+// every MCP transaction, which makes the motor pins receive garbled/conflicting
+// commands. Pin 5 (Timer3 OC3A) is a free PWM-capable pin. The steering signal
+// wire must be physically moved to pin 5.
+static const uint8_t STEER_PWM = 5;
 static const uint8_t RX_PACKET_LED_PIN = 13;
 
 static Adafruit_MCP23X17 mcp;
