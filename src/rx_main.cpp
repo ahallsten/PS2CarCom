@@ -153,7 +153,7 @@ static int16_t rightXPWM = 0;
 
 static const AxisMap kLeftYMap = { 110, 110, 0, 145, 145, 255, 0, 255 };
 static const AxisMap kLeftXMap = { 90, 90, 0, 145, 145, 255, 0, 255 };
-static const AxisMap kRightYMap = { 105, 105, 0, 133, 133, 255, 0, 255 };
+static const AxisMap kRightYMap = { 105, 105, 0, 135, 135, 255, 0, 255 };
 static const AxisMap kRightXMap = { 105, 105, 0, 135, 135, 255, 0, 255 };
 
 static const unsigned long STATUS_PERIOD_MS = 250;
