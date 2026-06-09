@@ -10,6 +10,20 @@
 #include <Adafruit_MCP23X17.h>
 
 /**
+ * @brief Debug snapshot of one BTS7960 driver's PWM-side state.
+ */
+struct Bts7960PwmSnapshot {
+  /** Scheduler state for the RPWM input. */
+  SoftwarePwmSnapshot rpwm;
+
+  /** Scheduler state for the LPWM input. */
+  SoftwarePwmSnapshot lpwm;
+
+  /** Last nonzero drive direction selected by this wrapper. */
+  int8_t direction = 0;
+};
+
+/**
  * @brief Controls one BTS7960 motor driver through PWM, enable, and sense pins.
  *
  * Pins may live directly on the microcontroller or on the MCP23017 GPIO
@@ -69,6 +83,9 @@ public:
 
   /** @brief Brake, then coast the driver. */
   void stop();
+
+  /** @brief Capture the current PWM scheduler state for both direction pins. */
+  void getPwmSnapshot(Bts7960PwmSnapshot &snapshot) const;
 
 private:
   Adafruit_MCP23X17 *_mcp;

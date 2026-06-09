@@ -131,3 +131,19 @@ void SoftwarePWMX::update() {
     }
   }
 }
+
+bool SoftwarePWMX::getChannelSnapshot(int8_t idx, SoftwarePwmSnapshot &snapshot) const {
+  snapshot = SoftwarePwmSnapshot();
+  snapshot.channel = idx;
+  if (idx < 0 || idx >= _max) return false;
+  if (_ch[idx].pinDef.pin == 255) return false;
+
+  const PWMChannelX &channel = _ch[idx];
+  snapshot.valid = true;
+  snapshot.pinDef = channel.pinDef;
+  snapshot.duty = channel.duty;
+  snapshot.period_us = channel.period_us;
+  snapshot.on_time_us = channel.on_time_us;
+  snapshot.state = channel.state;
+  return true;
+}

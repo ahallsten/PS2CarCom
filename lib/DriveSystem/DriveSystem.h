@@ -116,6 +116,25 @@ public:
    */
   void getMotorPercents(uint8_t out[4]) const;
 
+  /**
+   * @brief Return the latest signed commands recorded for FL, FR, RL, RR.
+   *
+   * These are the commands that survived receiver-level enable and parking
+   * brake checks, not merely the raw stick-mapping values.
+   *
+   * @param out Four signed command values in front-left, front-right,
+   * rear-left, rear-right order.
+   */
+  void getLastCommands(int16_t out[4]) const;
+
+  /**
+   * @brief Capture PWM scheduler state for FL, FR, RL, RR.
+   *
+   * @param out Four motor PWM snapshots in front-left, front-right,
+   * rear-left, rear-right order.
+   */
+  void getPwmSnapshots(Bts7960PwmSnapshot out[4]) const;
+
 private:
   /** @brief Enable all four BTS7960 drivers. */
   void enableAll();

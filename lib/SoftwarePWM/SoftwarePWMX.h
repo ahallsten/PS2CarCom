@@ -50,6 +50,32 @@ struct PWMChannelX {
 };
 
 /**
+ * @brief Read-only debug snapshot of one SoftwarePWMX channel.
+ */
+struct SoftwarePwmSnapshot {
+  /** Channel index returned by addChannel(). */
+  int8_t channel = -1;
+
+  /** Whether the channel index is valid and currently allocated. */
+  bool valid = false;
+
+  /** Pin driven by this channel. */
+  PinDef pinDef = { 255, PinSource::MCP_PIN };
+
+  /** Duty cycle currently stored by the scheduler, 0..255. */
+  uint8_t duty = 0;
+
+  /** PWM period in microseconds. */
+  unsigned long period_us = 0;
+
+  /** Cached high-time duration in microseconds. */
+  unsigned long on_time_us = 0;
+
+  /** Current scheduler output state, updated by update(). */
+  bool state = false;
+};
+
+/**
  * @brief Software PWM scheduler for MCU and MCP23017 pins.
  *
  * This class lets the receiver generate PWM on MCP23017 pins, which do not have
@@ -124,6 +150,19 @@ public:
    * Call this as often as possible from loop().
    */
   void update();
+
+  /**
+   * @brief Capture the current scheduler state for a channel.
+   *
+   * This reports the duty cycle the motor layer most recently requested from
+   * SoftwarePWMX. The state field is only the scheduler's current HIGH/LOW
+   * phase and will change continuously while PWM is running.
+   *
+   * @param idx Channel index returned by addChannel().
+   * @param snapshot Destination populated with channel state.
+   * @return true when idx refers to an allocated channel.
+   */
+  bool getChannelSnapshot(int8_t idx, SoftwarePwmSnapshot &snapshot) const;
 
   /**
    * @brief Convert an 8-bit duty cycle into high-time microseconds.

@@ -19,6 +19,10 @@
 #define RX_PRINT_DECODED_CONTROL 1
 #endif
 
+#ifndef RX_PRINT_DRIVE_DEBUG
+#define RX_PRINT_DRIVE_DEBUG 1
+#endif
+
 #ifndef RX_PRINT_DECODE_ERRORS
 #define RX_PRINT_DECODE_ERRORS 1
 #endif
@@ -137,6 +141,9 @@ enum Button : uint8_t {
 static bool parkingBrake = false;
 static bool driveEnabled = false;
 static bool tankMode = false;
+static bool controlDebugEnabled = (RX_PRINT_DECODED_CONTROL != 0);
+static bool driveDebugEnabled = (RX_PRINT_DRIVE_DEBUG != 0);
+static bool forceDriveDebugPrint = false;
 static int16_t maximumSpeed = 255;
 static const int16_t kMinimumSpeed = 25;
 
@@ -150,6 +157,9 @@ static int16_t leftYPWM = 0;
 static int16_t leftXPWM = 0;
 static int16_t rightYPWM = 0;
 static int16_t rightXPWM = 0;
+static uint8_t pedalDriveValue = 0;
+static int16_t leftDriveCommand = 0;
+static int16_t rightDriveCommand = 0;
 
 static const AxisMap kLeftYMap = { 110, 110, 0, 145, 145, 255, 0, 255 };
 static const AxisMap kLeftXMap = { 90, 90, 0, 145, 145, 255, 0, 255 };
@@ -221,6 +231,13 @@ static Button getButtonEnum(uint8_t bit) {
   return static_cast<Button>(bit);
 }
 
+static void printDebugToggle(const __FlashStringHelper *name, bool enabled) {
+  printLogPrefix(Serial, F("RX"), F("LOG"), lastControlSeq);
+  Serial.print(name);
+  Serial.print(F("="));
+  Serial.println(enabled ? F("ON") : F("OFF"));
+}
+
 static void handleButtonPress(uint8_t bit) {
   if (bit > 15) return;
   unsigned long now = millis();
@@ -248,8 +265,18 @@ static void handleButtonPress(uint8_t bit) {
     case RIGHT:
       maximumSpeed = 255;
       break;
+    case L2:
+      driveDebugEnabled = !driveDebugEnabled;
+      forceDriveDebugPrint = driveDebugEnabled;
+      printDebugToggle(F("DRV"), driveDebugEnabled);
+      break;
     case R2:
       driveEnabled = !driveEnabled;
+      break;
+    case L1:
+      controlDebugEnabled = !controlDebugEnabled;
+      haveDebugState = false;
+      printDebugToggle(F("CTRL"), controlDebugEnabled);
       break;
     default:
       break;
@@ -305,7 +332,8 @@ static void sendStatusHeartbeat() {
 }
 
 static void printDecodedControlDebug(const ControlMessage &msg) {
-#if RX_PRINT_DECODED_CONTROL
+  if (!controlDebugEnabled) return;
+
   unsigned long now = millis();
   bool changed = !haveDebugState ||
                  msg.controllerPresent != lastDebugControllerPresent ||
@@ -324,9 +352,6 @@ static void printDecodedControlDebug(const ControlMessage &msg) {
   lastDebugControllerPresent = msg.controllerPresent;
   haveDebugState = true;
   lastControlDebugMs = now;
-#else
-  (void)msg;
-#endif
 }
 
 static void printDecodeErrorDebug(const uint8_t *buffer, uint8_t len) {
@@ -392,37 +417,128 @@ static int16_t lastDbgLeftY = 0;
 static int16_t lastDbgLeftX = 0;
 static int16_t lastDbgRightY = 0;
 static int16_t lastDbgRightX = 0;
+static uint8_t lastDbgPedal = 0;
+static int16_t lastDbgLeftDriveCommand = 0;
+static int16_t lastDbgRightDriveCommand = 0;
+static int16_t lastDbgMotorCommand[4] = {0, 0, 0, 0};
+static uint8_t lastDbgMotorRDuty[4] = {0, 0, 0, 0};
+static uint8_t lastDbgMotorLDuty[4] = {0, 0, 0, 0};
 static bool lastDbgEnabled = false;
 static bool lastDbgTankMode = false;
 static bool lastDbgParkingBrake = false;
 static bool haveDriveDebug = false;
 static unsigned long lastDriveDebugMs = 0;
 
+static uint8_t snapshotDuty(const SoftwarePwmSnapshot &snapshot) {
+  return snapshot.valid ? snapshot.duty : 0;
+}
+
+static void printPwmSideDebug(char side, const SoftwarePwmSnapshot &snapshot) {
+  Serial.print(' ');
+  Serial.print(side);
+  if (!snapshot.valid) {
+    Serial.print(F("=NA"));
+    return;
+  }
+
+  Serial.print(F("@"));
+  Serial.print(snapshot.pinDef.pin);
+  Serial.print(F("="));
+  Serial.print(snapshot.duty);
+  Serial.print(snapshot.state ? F("/H") : F("/L"));
+}
+
+static void printMotorPwmDebug(const __FlashStringHelper *name,
+                               int16_t command,
+                               const Bts7960PwmSnapshot &snapshot) {
+  Serial.print(' ');
+  Serial.print(name);
+  Serial.print(F("(cmd="));
+  Serial.print(command);
+  printPwmSideDebug('R', snapshot.rpwm);
+  printPwmSideDebug('L', snapshot.lpwm);
+  Serial.print(F(")"));
+}
+
 // Mirror printDecodedControlDebug's gating: only emit the drive line when
 // something changed or once per CONTROL_DEBUG_PERIOD_MS. Printing it every loop
 // saturates the serial TX buffer and stalls loop(), which backlogs every other
 // debug line and makes input look laggy/bursty.
 static void maybePrintDriveDebug() {
+  if (!driveDebugEnabled) return;
+
+  int16_t motorCommand[4] = {0, 0, 0, 0};
+  Bts7960PwmSnapshot motorPwm[4];
+  drive.getLastCommands(motorCommand);
+  drive.getPwmSnapshots(motorPwm);
+
+  bool motorChanged = false;
+  for (uint8_t i = 0; i < 4; ++i) {
+    uint8_t rDuty = snapshotDuty(motorPwm[i].rpwm);
+    uint8_t lDuty = snapshotDuty(motorPwm[i].lpwm);
+    if (motorCommand[i] != lastDbgMotorCommand[i] ||
+        rDuty != lastDbgMotorRDuty[i] ||
+        lDuty != lastDbgMotorLDuty[i]) {
+      motorChanged = true;
+    }
+  }
+
   unsigned long now = millis();
-  bool changed = !haveDriveDebug ||
+  bool changed = forceDriveDebugPrint || !haveDriveDebug ||
                  leftYPWM != lastDbgLeftY || leftXPWM != lastDbgLeftX ||
                  rightYPWM != lastDbgRightY || rightXPWM != lastDbgRightX ||
+                 pedalDriveValue != lastDbgPedal ||
+                 leftDriveCommand != lastDbgLeftDriveCommand ||
+                 rightDriveCommand != lastDbgRightDriveCommand ||
+                 motorChanged ||
                  driveEnabled != lastDbgEnabled || tankMode != lastDbgTankMode ||
                  parkingBrake != lastDbgParkingBrake;
   if (!changed && (now - lastDriveDebugMs < CONTROL_DEBUG_PERIOD_MS)) return;
 
   printLogPrefix(Serial, F("RX"), F("DRV"), lastControlSeq);
-  printDriveDebug(leftYPWM, leftXPWM, rightYPWM, rightXPWM,
-                  driveEnabled, tankMode, parkingBrake, Serial);
+  Serial.print(F("pwmLY="));
+  Serial.print(leftYPWM);
+  Serial.print(F(" pwmLX="));
+  Serial.print(leftXPWM);
+  Serial.print(F(" pwmRY="));
+  Serial.print(rightYPWM);
+  Serial.print(F(" pwmSTR="));
+  Serial.print(rightXPWM);
+  Serial.print(F(" pedal="));
+  Serial.print(pedalDriveValue);
+  Serial.print(F(" drvL="));
+  Serial.print(leftDriveCommand);
+  Serial.print(F(" drvR="));
+  Serial.print(rightDriveCommand);
+  Serial.print(F(" EN="));
+  Serial.print(driveEnabled ? F("ON") : F("OFF"));
+  Serial.print(F(" TMD="));
+  Serial.print(tankMode ? F("ON") : F("OFF"));
+  Serial.print(F(" PBRK="));
+  Serial.print(parkingBrake ? F("ON") : F("OFF"));
+  printMotorPwmDebug(F("FL"), motorCommand[0], motorPwm[0]);
+  printMotorPwmDebug(F("FR"), motorCommand[1], motorPwm[1]);
+  printMotorPwmDebug(F("RL"), motorCommand[2], motorPwm[2]);
+  printMotorPwmDebug(F("RR"), motorCommand[3], motorPwm[3]);
+  Serial.println();
 
   lastDbgLeftY = leftYPWM;
   lastDbgLeftX = leftXPWM;
   lastDbgRightY = rightYPWM;
   lastDbgRightX = rightXPWM;
+  lastDbgPedal = pedalDriveValue;
+  lastDbgLeftDriveCommand = leftDriveCommand;
+  lastDbgRightDriveCommand = rightDriveCommand;
+  for (uint8_t i = 0; i < 4; ++i) {
+    lastDbgMotorCommand[i] = motorCommand[i];
+    lastDbgMotorRDuty[i] = snapshotDuty(motorPwm[i].rpwm);
+    lastDbgMotorLDuty[i] = snapshotDuty(motorPwm[i].lpwm);
+  }
   lastDbgEnabled = driveEnabled;
   lastDbgTankMode = tankMode;
   lastDbgParkingBrake = parkingBrake;
   haveDriveDebug = true;
+  forceDriveDebugPrint = false;
   lastDriveDebugMs = now;
 }
 
@@ -433,6 +549,13 @@ static void controlsDecision() {
     buttonEdges.reset(0);
     needButtonResync = true;
     driveEnabled = false;
+    leftYPWM = 0;
+    leftXPWM = 0;
+    rightYPWM = 0;
+    rightXPWM = 0;
+    pedalDriveValue = 0;
+    leftDriveCommand = 0;
+    rightDriveCommand = 0;
     drive.setEnabled(false);
     drive.applyDriveAll(0);
     return;
@@ -452,19 +575,17 @@ static void controlsDecision() {
   rightYPWM = mapAxisSigned(currentState.rightY, kRightYMap);
   rightXPWM = mapAxisSigned(currentState.rightX, kRightXMap);
 
-  uint8_t pedal = getGasPedalDriveValue();
+  pedalDriveValue = getGasPedalDriveValue();
 
-  int16_t leftDrive = (clampSpeed(leftYPWM) * pedal) / 255;
-  int16_t rightDrive = (clampSpeed(tankMode ? rightYPWM : leftYPWM) * pedal) / 255;
+  leftDriveCommand = (clampSpeed(leftYPWM) * pedalDriveValue) / 255;
+  rightDriveCommand = (clampSpeed(tankMode ? rightYPWM : leftYPWM) * pedalDriveValue) / 255;
 
   drive.setEnabled(driveEnabled);
   drive.setParkingBrake(parkingBrake);
-  drive.applyDrive(leftDrive, rightDrive, leftDrive, rightDrive);
+  drive.applyDrive(leftDriveCommand, rightDriveCommand, leftDriveCommand, rightDriveCommand);
 
   uint8_t steerPwm = static_cast<uint8_t>(constrain(rightXPWM + 127, 0, 255));
   analogWrite(STEER_PWM, steerPwm);
-
-  maybePrintDriveDebug();
 }
 
 void setup() {
@@ -515,6 +636,7 @@ void loop() {
   controlsDecision();
   sendStatusHeartbeat();
   pwmx.update();
+  maybePrintDriveDebug();
   updateRxPacketLed();
 }
 

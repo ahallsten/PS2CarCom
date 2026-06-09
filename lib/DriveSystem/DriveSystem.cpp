@@ -112,3 +112,16 @@ void DriveSystem::getMotorPercents(uint8_t out[4]) const {
     out[i] = static_cast<uint8_t>((mag * 100U) / 255U);
   }
 }
+
+void DriveSystem::getLastCommands(int16_t out[4]) const {
+  for (uint8_t i = 0; i < 4; ++i) {
+    out[i] = _lastCmd[i];
+  }
+}
+
+void DriveSystem::getPwmSnapshots(Bts7960PwmSnapshot out[4]) const {
+  _fl.getPwmSnapshot(out[0]);
+  _fr.getPwmSnapshot(out[1]);
+  _rl.getPwmSnapshot(out[2]);
+  _rr.getPwmSnapshot(out[3]);
+}

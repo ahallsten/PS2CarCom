@@ -104,3 +104,12 @@ void BTS7960::stop() {
   brake();
   coast();
 }
+
+void BTS7960::getPwmSnapshot(Bts7960PwmSnapshot &snapshot) const {
+  snapshot = Bts7960PwmSnapshot();
+  snapshot.direction = _lastDir;
+  if (!_pwmx) return;
+
+  _pwmx->getChannelSnapshot(_rPwmCh, snapshot.rpwm);
+  _pwmx->getChannelSnapshot(_lPwmCh, snapshot.lpwm);
+}
