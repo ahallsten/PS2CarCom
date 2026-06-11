@@ -212,7 +212,7 @@ The packet format is implemented in `lib/Protocol/Protocol.h`. Both packet types
 
 | Byte | Meaning |
 | --- | --- |
-| `0` | Protocol version, currently `2` |
+| `0` | Protocol version, currently `3` |
 | `1` | Packet type: `1` for control, `2` for status |
 
 Control packet, 10 bytes total:
@@ -229,20 +229,22 @@ Control packet, 10 bytes total:
 | `8` | Right stick X |
 | `9` | Right stick Y |
 
-Status packet, 14 bytes total:
+Status packet, 36 bytes total (receiver-to-transmitter telemetry; the transmitter also sends one back where only the link/RSSI/battery fields are meaningful):
 
 | Byte(s) | Meaning |
 | --- | --- |
 | `0` | Protocol version |
 | `1` | `PACKET_STATUS` |
-| `2` | Flags: bit `0x01` link OK, bit `0x02` controller present |
-| `3..4` | Raw RSSI, signed 16-bit little-endian |
-| `5..6` | Smoothed RSSI, signed 16-bit little-endian |
-| `7..8` | Battery millivolts, unsigned 16-bit little-endian |
-| `9..12` | Motor command percentages in front-left, front-right, rear-left, rear-right order |
-| `13` | ACK echo: last control sequence number the receiver decoded (`0` in the transmitter-to-receiver direction) |
+| `2` | Flags: `0x01` link OK, `0x02` controller present, `0x04` parking brake, `0x08` drive enabled, `0x10` tank mode |
+| `3` | ACK echo: last control sequence number the receiver decoded (`0` in the transmitter-to-receiver direction) |
+| `4..5` | Raw RSSI, signed 16-bit little-endian |
+| `6..7` | Smoothed RSSI, signed 16-bit little-endian |
+| `8..9` | Battery millivolts, unsigned 16-bit little-endian |
+| `10..11` | Raw battery ADC (0..1023), unsigned 16-bit little-endian |
+| `12..19` | Signed motor PWM commands (`-255..255`), 16-bit LE each: FL, FR, RL, RR |
+| `20..35` | BTS7960 current-sense raw ADC, 16-bit LE each: FL L_IS, FL R_IS, FR L_IS, FR R_IS, RL L_IS, RL R_IS, RR L_IS, RR R_IS |
 
-The transmitter sends control packets immediately on state changes, otherwise at least every 50 ms, and status heartbeats every 100 ms. The receiver sends status heartbeats every 250 ms. The receiver considers the control link stale after 500 ms without a fresh control packet from a present controller.
+The transmitter sends control packets immediately on state changes, otherwise at least every 50 ms, and status heartbeats every 100 ms. The receiver sends status/telemetry heartbeats every 250 ms and samples its slow analog telemetry (battery, current sense) on that same cadence. The receiver considers the control link stale after 500 ms without a fresh control packet from a present controller.
 
 Both radios use the `Bw500Cr45Sf128` LoRa modem config (fast, short range) so each transmission is ~11 ms on air instead of ~46 ms at the RadioHead default; this keeps the receiver loop and software PWM from stalling. The transmitter and receiver must always use the same modem config.
 
@@ -255,6 +257,21 @@ Both firmwares print one standardized line per logged event:
 ```
 
 `ROLE` is `TX` or `RX`; `TAG` is `CTRL` (controller state), `DRV` (receiver drive mapping), `ACK` (receiver-acknowledged control seq, printed by the transmitter), or `ERR` (ignored packet). `seq` is the control sequence number the line refers to, so transmitter and receiver logs can be correlated and the `ACK` line's `seq` vs. `lastsent` shows how far behind the link is running.
+
+## Nextion Display (Transmitter)
+
+The transmitter drives an optional Nextion HMI through `lib/NextionDisplay`, with a small log multiplexer in `lib/SystemLog`. It is non-blocking and compiles/runs whether or not a panel is attached.
+
+- **UART:** `Serial1` (D0 = RX, D1 = TX). This is a hardware UART, fully separate from the native-USB `Serial` used by the computer Serial Monitor. Wire the Nextion's TX to D0 and RX to D1 (level-appropriate). Baud is `NEXTION_BAUD` (default 9600, Nextion factory default).
+- **Pages:** `log` (raw scrolling log mirrored from `SystemLog`) and `dash` (dashboard widgets). The backend selects `log` at boot and switches to `dash` when a controller connects. `NextionDisplay::showLogPage()` / `showDashboardPage()` / `togglePage()` are available for future touch-event wiring.
+- **Dashboard refresh:** `NEXTION_DASH_HZ` (default 8 Hz), pushed only while the dash page is showing.
+- **Expected HMI component names** (edit in `lib/NextionDisplay/NextionConfig.h` to match your editor design): `log.tLog`; `dash.tRssi`, `dash.tPark`, `dash.tEnable`, `dash.tTank`, `dash.tLink`, `dash.tTxBatt`, `dash.tRxBatt`; per-motor PWM `dash.tPwmFL/FR/RL/RR`; per-motor current sense `dash.tIsFLl/FLr/FRl/FRr/RLl/RLr/RRl/RRr`.
+- **Disable entirely:** build with `-DNEXTION_ENABLED=0` to compile the UART traffic out to no-ops.
+
+## Battery Telemetry
+
+- **Transmitter:** `TX_BATTERY_PIN` defaults to `A9` (= D9), the Feather 32u4 on-board LiPo monitor pin, whose divider halves VBAT. Scaling uses `TX_ADC_REF_MV` (3300) and `TX_BATT_DIV_NUM`/`DEN` (2/1).
+- **Receiver:** read through an external divider on `RX_BATTERY_PIN`. Scaling uses `RX_ADC_REF_MV` (3300) and `RX_BATT_DIV_NUM`/`DEN` (default 11/1, ~36 V full scale). The raw ADC is also sent in the status packet so the divider can be calibrated. **Verify these against your actual divider before trusting the millivolts.**
 
 ## Failsafe And Safety Behavior
 

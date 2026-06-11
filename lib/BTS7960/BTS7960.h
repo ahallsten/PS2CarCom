@@ -70,6 +70,17 @@ public:
   /** @brief Brake, then coast the driver. */
   void stop();
 
+  /**
+   * @brief Read the BTS7960 current-sense (IS) inputs as raw ADC values.
+   *
+   * Only pins configured as PinSource::MCU_PIN can be analog-read; pins routed
+   * through the MCP23017 have no ADC and report 0.
+   *
+   * @param lisOut Raw ADC (0..1023) of the L_IS pin, or 0 if not an MCU pin.
+   * @param risOut Raw ADC (0..1023) of the R_IS pin, or 0 if not an MCU pin.
+   */
+  void readCurrentSense(uint16_t &lisOut, uint16_t &risOut) const;
+
 private:
   Adafruit_MCP23X17 *_mcp;
   SoftwarePWMX *_pwmx;

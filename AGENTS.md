@@ -21,6 +21,7 @@ This branch has separate PlatformIO environments for each firmware role: `transm
 - `src/rx_main.cpp`: receiver pin map, control decisions, stick mapping, pedal scaling, link-loss failsafe, and steering/motor output.
 - `lib/DriveSystem/`, `lib/BTS7960/`, `lib/SoftwarePWM/`: motor driver behavior.
 - `lib/AxisMap/` and `lib/Controller/`: stick mapping, button edge tracking, and debug printing.
+- `lib/NextionDisplay/` and `lib/SystemLog/`: transmitter-only Nextion HMI backend (on `Serial1`) and a USB+Nextion log multiplexer. Both are gated inside `#ifdef TRANSMITTER`, so they are not compiled into the receiver. `NextionConfig.h` holds the enable flag, baud, refresh rate, and all HMI page/component names.
 
 `sketchPad.txt` is currently unused by the active TX/RX firmware. Treat it as legacy or experimental unless a task says otherwise. (The former unused `lib/Joystick`, `lib/MCPPWM`, and `lib/Utils` libraries were removed; `SoftwarePWMX` is the sole MCP/MCU software-PWM path.)
 
@@ -63,7 +64,7 @@ Always preserve link-loss behavior unless explicitly changing failsafe design: s
 
 ## Protocol Guidance
 
-`lib/Protocol/Protocol.h` is compatibility-critical. Current protocol version is `2`.
+`lib/Protocol/Protocol.h` is compatibility-critical. Current protocol version is `3`.
 
 If changing packet contents:
 

@@ -112,3 +112,16 @@ void DriveSystem::getMotorPercents(uint8_t out[4]) const {
     out[i] = static_cast<uint8_t>((mag * 100U) / 255U);
   }
 }
+
+void DriveSystem::getMotorCommands(int16_t out[4]) const {
+  for (uint8_t i = 0; i < 4; ++i) {
+    out[i] = _lastCmd[i];
+  }
+}
+
+void DriveSystem::readCurrentSense(uint16_t out[8]) const {
+  _fl.readCurrentSense(out[0], out[1]);
+  _fr.readCurrentSense(out[2], out[3]);
+  _rl.readCurrentSense(out[4], out[5]);
+  _rr.readCurrentSense(out[6], out[7]);
+}

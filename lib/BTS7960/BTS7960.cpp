@@ -104,3 +104,10 @@ void BTS7960::stop() {
   brake();
   coast();
 }
+
+void BTS7960::readCurrentSense(uint16_t &lisOut, uint16_t &risOut) const {
+  lisOut = (_L_IS.source == PinSource::MCU_PIN)
+             ? static_cast<uint16_t>(analogRead(_L_IS.pin)) : 0;
+  risOut = (_R_IS.source == PinSource::MCU_PIN)
+             ? static_cast<uint16_t>(analogRead(_R_IS.pin)) : 0;
+}

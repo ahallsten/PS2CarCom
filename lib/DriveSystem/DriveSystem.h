@@ -116,6 +116,23 @@ public:
    */
   void getMotorPercents(uint8_t out[4]) const;
 
+  /**
+   * @brief Return the last signed PWM commands (-255..255) per motor.
+   *
+   * @param out Four-element output array in front-left, front-right, rear-left,
+   *            rear-right order.
+   */
+  void getMotorCommands(int16_t out[4]) const;
+
+  /**
+   * @brief Read all eight BTS7960 current-sense inputs as raw ADC values.
+   *
+   * @param out Eight-element output array ordered FL L_IS, FL R_IS, FR L_IS,
+   *            FR R_IS, RL L_IS, RL R_IS, RR L_IS, RR R_IS. MCP-routed pins
+   *            report 0.
+   */
+  void readCurrentSense(uint16_t out[8]) const;
+
 private:
   /** @brief Enable all four BTS7960 drivers. */
   void enableAll();

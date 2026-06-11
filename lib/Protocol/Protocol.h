@@ -11,7 +11,7 @@
  * Change this only when both transmitter and receiver decode paths are updated
  * or when backward-compatible decode logic is added.
  */
-static const uint8_t PROTOCOL_VERSION = 2;
+static const uint8_t PROTOCOL_VERSION = 3;
 
 /**
  * @brief Packet type byte values used after the protocol version byte.
@@ -41,6 +41,15 @@ enum StatusFlags : uint8_t {
 
   /** Set when the transmitter-side controller is present. */
   STATUS_FLAG_CONTROLLER_PRESENT = 0x02,
+
+  /** Receiver parking brake engaged. Meaningful in the receiver->transmitter direction. */
+  STATUS_FLAG_PARKING_BRAKE = 0x04,
+
+  /** Receiver drive output enabled. Meaningful in the receiver->transmitter direction. */
+  STATUS_FLAG_DRIVE_ENABLED = 0x08,
+
+  /** Receiver tank-drive mode active. Meaningful in the receiver->transmitter direction. */
+  STATUS_FLAG_TANK_MODE = 0x10,
 };
 
 /**
@@ -61,10 +70,13 @@ struct ControlMessage {
 };
 
 /**
- * @brief Decoded status packet payload.
+ * @brief Decoded status/telemetry packet payload (primarily receiver->transmitter).
  *
- * Status packets report link health, RSSI, battery telemetry, and receiver
- * motor-command percentages.
+ * Carries link health, control-mode flags, RSSI, battery telemetry, per-motor
+ * PWM commands, and BTS7960 current-sense ADC readings so the transmitter can
+ * render a dashboard. The transmitter also sends a status packet back; in that
+ * direction only linkOk/controllerPresent/rssi/batteryMv are meaningful and the
+ * receiver-specific fields are left zero.
  */
 struct StatusMessage {
   /** true when the reporting side considers its control link healthy. */
@@ -72,6 +84,24 @@ struct StatusMessage {
 
   /** true when a transmitter-side controller is present. */
   bool controllerPresent = false;
+
+  /** Receiver parking brake engaged (receiver->transmitter direction). */
+  bool parkingBrake = false;
+
+  /** Receiver drive output enabled (receiver->transmitter direction). */
+  bool driveEnabled = false;
+
+  /** Receiver tank-drive mode active (receiver->transmitter direction). */
+  bool tankMode = false;
+
+  /**
+   * @brief Last control sequence number the sender received (lightweight ACK).
+   *
+   * The receiver sets this to the seq of the most recent control packet it
+   * decoded, so the transmitter can confirm which control packets made it
+   * across without a per-packet handshake. Unused/0 in the TX->RX direction.
+   */
+  uint8_t ackSeq = 0;
 
   /** Last raw RSSI sample in dBm-style RadioHead units. */
   int16_t rssiRaw = 0;
@@ -82,17 +112,19 @@ struct StatusMessage {
   /** Battery estimate in millivolts. Scaling depends on the board-side sense circuit. */
   uint16_t batteryMv = 0;
 
-  /** Motor command magnitudes as percentages: FL, FR, RL, RR. */
-  uint8_t motorPct[4] = {0, 0, 0, 0};
+  /** Raw battery ADC reading (0..1023) before scaling, for calibration/diagnostics. */
+  uint16_t batteryRaw = 0;
+
+  /** Signed motor PWM commands being applied (-255..255): FL, FR, RL, RR. */
+  int16_t motorPwm[4] = {0, 0, 0, 0};
 
   /**
-   * @brief Last control sequence number the sender received (lightweight ACK).
+   * @brief BTS7960 current-sense raw ADC readings (0..1023).
    *
-   * The receiver sets this to the seq of the most recent control packet it
-   * decoded, so the transmitter can confirm which control packets made it
-   * across without a per-packet handshake. Unused/0 in the TX->RX direction.
+   * Order: FL L_IS, FL R_IS, FR L_IS, FR R_IS, RL L_IS, RL R_IS, RR L_IS, RR R_IS.
+   * Pins routed through the MCP23017 cannot be analog-read and report 0.
    */
-  uint8_t ackSeq = 0;
+  uint16_t currentSense[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 };
 
 /**
@@ -113,11 +145,30 @@ static const ControllerState kNeutralControllerState = { 0, 127, 127, 127, 127 }
 /** @brief Encoded byte length of a control packet. */
 static const uint8_t CONTROL_MESSAGE_SIZE = 10;
 
-/** @brief Encoded byte length of a status packet. */
-static const uint8_t STATUS_MESSAGE_SIZE = 14;
+/**
+ * @brief Encoded byte length of a status packet.
+ *
+ * Wire layout (little-endian):
+ *   [0]      protocol version
+ *   [1]      packet type (PACKET_STATUS)
+ *   [2]      flags (StatusFlags)
+ *   [3]      ackSeq
+ *   [4..5]   rssiRaw (i16)
+ *   [6..7]   rssiSmooth (i16)
+ *   [8..9]   batteryMv (u16)
+ *   [10..11] batteryRaw (u16)
+ *   [12..19] motorPwm[4] (i16 each): FL, FR, RL, RR
+ *   [20..35] currentSense[8] (u16 each): FL_L, FL_R, FR_L, FR_R, RL_L, RL_R, RR_L, RR_R
+ */
+static const uint8_t STATUS_MESSAGE_SIZE = 36;
 
 /** @brief Largest packet buffer needed by the current protocol. */
 static const uint8_t MAX_WIRE_PACKET_SIZE = STATUS_MESSAGE_SIZE;
+
+// Keep the documented wire layout and the size constant in agreement. If you
+// change StatusMessage fields, update both the offsets above and this value.
+static_assert(STATUS_MESSAGE_SIZE == 36, "STATUS_MESSAGE_SIZE must match the documented wire layout");
+static_assert(MAX_WIRE_PACKET_SIZE >= CONTROL_MESSAGE_SIZE, "wire buffer must hold a control packet");
 
 /**
  * @brief Write a 16-bit unsigned integer in little-endian byte order.
@@ -218,11 +269,20 @@ inline void encodeStatusMessage(const StatusMessage &msg,
   out[2] = 0;
   if (msg.linkOk) out[2] |= STATUS_FLAG_LINK_OK;
   if (msg.controllerPresent) out[2] |= STATUS_FLAG_CONTROLLER_PRESENT;
-  writeI16LE(out + 3, msg.rssiRaw);
-  writeI16LE(out + 5, msg.rssiSmooth);
-  writeU16LE(out + 7, msg.batteryMv);
-  memcpy(out + 9, msg.motorPct, sizeof(msg.motorPct));
-  out[13] = msg.ackSeq;
+  if (msg.parkingBrake) out[2] |= STATUS_FLAG_PARKING_BRAKE;
+  if (msg.driveEnabled) out[2] |= STATUS_FLAG_DRIVE_ENABLED;
+  if (msg.tankMode) out[2] |= STATUS_FLAG_TANK_MODE;
+  out[3] = msg.ackSeq;
+  writeI16LE(out + 4, msg.rssiRaw);
+  writeI16LE(out + 6, msg.rssiSmooth);
+  writeU16LE(out + 8, msg.batteryMv);
+  writeU16LE(out + 10, msg.batteryRaw);
+  for (uint8_t i = 0; i < 4; ++i) {
+    writeI16LE(out + 12 + (i * 2), msg.motorPwm[i]);
+  }
+  for (uint8_t i = 0; i < 8; ++i) {
+    writeU16LE(out + 20 + (i * 2), msg.currentSense[i]);
+  }
 }
 
 /**
@@ -242,11 +302,20 @@ inline bool decodeStatusMessage(const uint8_t *data, uint8_t len, StatusMessage 
 
   msg.linkOk = (data[2] & STATUS_FLAG_LINK_OK) != 0;
   msg.controllerPresent = (data[2] & STATUS_FLAG_CONTROLLER_PRESENT) != 0;
-  msg.rssiRaw = readI16LE(data + 3);
-  msg.rssiSmooth = readI16LE(data + 5);
-  msg.batteryMv = readU16LE(data + 7);
-  memcpy(msg.motorPct, data + 9, sizeof(msg.motorPct));
-  msg.ackSeq = data[13];
+  msg.parkingBrake = (data[2] & STATUS_FLAG_PARKING_BRAKE) != 0;
+  msg.driveEnabled = (data[2] & STATUS_FLAG_DRIVE_ENABLED) != 0;
+  msg.tankMode = (data[2] & STATUS_FLAG_TANK_MODE) != 0;
+  msg.ackSeq = data[3];
+  msg.rssiRaw = readI16LE(data + 4);
+  msg.rssiSmooth = readI16LE(data + 6);
+  msg.batteryMv = readU16LE(data + 8);
+  msg.batteryRaw = readU16LE(data + 10);
+  for (uint8_t i = 0; i < 4; ++i) {
+    msg.motorPwm[i] = readI16LE(data + 12 + (i * 2));
+  }
+  for (uint8_t i = 0; i < 8; ++i) {
+    msg.currentSense[i] = readU16LE(data + 20 + (i * 2));
+  }
   return true;
 }
 

@@ -272,11 +272,24 @@ static uint8_t getGasPedalDriveValue() {
   return static_cast<uint8_t>((raw * 255L) / 1023L);
 }
 
+// ---- Receiver battery sense ----
+// Receiver pack is ~10-28 V, so it must be read through a voltage divider.
+// vbatt_mv = (adc * RX_ADC_REF_MV / 1023) * RX_BATT_DIV_NUM / RX_BATT_DIV_DEN.
+// Defaults assume a ~11:1 divider (e.g. 100k/10k -> ~36 V full scale). These
+// MUST be calibrated against the real divider; the raw ADC is also reported in
+// the status packet to make calibration easy.
+static const unsigned long RX_ADC_REF_MV = 3300UL;
+static const unsigned long RX_BATT_DIV_NUM = 11;
+static const unsigned long RX_BATT_DIV_DEN = 1;
+static uint16_t receiverBatteryRaw = 0;
+
 static uint16_t readReceiverBatteryMilliVolts() {
-  int raw = analogRead(RX_BATTERY_PIN);
+  long raw = analogRead(RX_BATTERY_PIN);
   if (raw < 0) raw = 0;
   if (raw > 1023) raw = 1023;
-  return static_cast<uint16_t>((static_cast<unsigned long>(raw) * 48000UL) / 1023UL);
+  receiverBatteryRaw = static_cast<uint16_t>(raw);
+  unsigned long pinMv = (static_cast<unsigned long>(raw) * RX_ADC_REF_MV) / 1023UL;
+  return static_cast<uint16_t>((pinMv * RX_BATT_DIV_NUM) / RX_BATT_DIV_DEN);
 }
 
 static bool hasFreshControlLink() {
@@ -288,14 +301,23 @@ static void sendStatusHeartbeat() {
   if (now - lastStatusSendMs < STATUS_PERIOD_MS) return;
   lastStatusSendMs = now;
 
+  // Sample the slow analog telemetry only on the status cadence (every
+  // STATUS_PERIOD_MS), not every loop, to keep the loop free for software PWM.
+  receiverBatteryMilliVolts = readReceiverBatteryMilliVolts();
+
   StatusMessage msg;
   msg.linkOk = hasFreshControlLink();
   msg.controllerPresent = remoteControllerPresent;
+  msg.parkingBrake = parkingBrake;
+  msg.driveEnabled = driveEnabled;
+  msg.tankMode = tankMode;
+  msg.ackSeq = lastControlSeq;
   msg.rssiRaw = rssiRawRx;
   msg.rssiSmooth = rssiSmoothRx;
   msg.batteryMv = receiverBatteryMilliVolts;
-  msg.ackSeq = lastControlSeq;
-  drive.getMotorPercents(msg.motorPct);
+  msg.batteryRaw = receiverBatteryRaw;
+  drive.getMotorCommands(msg.motorPwm);
+  drive.readCurrentSense(msg.currentSense);
 
   uint8_t buffer[STATUS_MESSAGE_SIZE] = {0};
   encodeStatusMessage(msg, buffer);
@@ -511,7 +533,6 @@ void loop() {
   maybePrintFirmwareBanner();
   updateRxPacketLed();
   handleIncomingPackets();
-  receiverBatteryMilliVolts = readReceiverBatteryMilliVolts();
   controlsDecision();
   sendStatusHeartbeat();
   pwmx.update();
