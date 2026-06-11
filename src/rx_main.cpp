@@ -16,6 +16,9 @@
 #include "Protocol.h"
 #include "RadioConfig.h"
 #include "SteeringActuator.h"
+#if RX_ENABLE_WHEEL_ENCODER_SLAVE_POLL
+#include "WheelEncoderProtocol.h"
+#endif
 
 #ifndef RX_PRINT_DECODED_CONTROL
 #define RX_PRINT_DECODED_CONTROL 0
@@ -27,6 +30,10 @@
 
 #ifndef RX_PRINT_DECODE_ERRORS
 #define RX_PRINT_DECODE_ERRORS 1
+#endif
+
+#ifndef RX_ENABLE_WHEEL_ENCODER_SLAVE_POLL
+#define RX_ENABLE_WHEEL_ENCODER_SLAVE_POLL 0
 #endif
 
 #ifndef GAS_PEDAL_PIN
@@ -469,6 +476,36 @@ static void readReceiverBatteryTelemetry() {
     scaleAdsReadingMilliVolts(midpointRaw, BATTERY_MIDPOINT_DIVIDER_NUM, BATTERY_MIDPOINT_DIVIDER_DEN);
 }
 
+#if RX_ENABLE_WHEEL_ENCODER_SLAVE_POLL
+static WheelEncoderMessage latestWheelEncoderMessage;
+static bool haveWheelEncoderMessage = false;
+static unsigned long lastWheelEncoderPollMs = 0;
+static const unsigned long WHEEL_ENCODER_POLL_PERIOD_MS = 50;
+
+static void pollWheelEncoderSlave() {
+  unsigned long now = millis();
+  if (now - lastWheelEncoderPollMs < WHEEL_ENCODER_POLL_PERIOD_MS) return;
+  lastWheelEncoderPollMs = now;
+
+  uint8_t buffer[WHEEL_ENCODER_PACKET_SIZE] = {0};
+  uint8_t count = Wire.requestFrom(WHEEL_ENCODER_SLAVE_I2C_ADDRESS,
+                                   static_cast<uint8_t>(WHEEL_ENCODER_PACKET_SIZE));
+  if (count != WHEEL_ENCODER_PACKET_SIZE) return;
+  for (uint8_t i = 0; i < WHEEL_ENCODER_PACKET_SIZE && Wire.available(); ++i) {
+    buffer[i] = Wire.read();
+  }
+
+  WheelEncoderMessage msg;
+  if (decodeWheelEncoderMessage(buffer, WHEEL_ENCODER_PACKET_SIZE, msg)) {
+    latestWheelEncoderMessage = msg;
+    haveWheelEncoderMessage = true;
+  }
+}
+#else
+static void pollWheelEncoderSlave() {
+}
+#endif
+
 static bool hasFreshControlLink() {
   return remoteControllerPresent && (millis() - lastControlPacketMs <= LINK_TIMEOUT_MS);
 }
@@ -893,6 +930,7 @@ void loop() {
   updateRxPacketLed();
   handleIncomingPackets();
   controlsDecision();
+  pollWheelEncoderSlave();
   sendStatusHeartbeat();
   updateRxPacketLed();
 }

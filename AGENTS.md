@@ -23,6 +23,7 @@ Roles are selected by PlatformIO environments: `transmitter` and `receiver`. Do 
 - `lib/BTS7960/`, `lib/DriveSystem/`, `lib/Pca9685Pwm/`: four-wheel motor output behavior.
 - `lib/SteeringActuator/`: steering BTS7960, AS5600 unwrap, homing, mechanical calibration, EEPROM store, and current protection.
 - `lib/CurrentProtection/`: reusable raw-ADC current trip/cooldown helper.
+- `src/wheel_encoder_slave_main.cpp` and `lib/WheelEncoderProtocol/`: optional Nano wheel-speed slave using TCA9548A plus four AS5600 sensors.
 - `archive/SoftwarePWM/`: old software PWM implementation, preserved but inactive.
 
 ## Build And Validation Commands
@@ -43,6 +44,7 @@ In this workspace, `/usr/bin/pio` may be broken with the system Python/click ver
 ```sh
 ~/.platformio/penv/bin/pio run -e transmitter
 ~/.platformio/penv/bin/pio run -e receiver
+~/.platformio/penv/bin/pio run -e wheel_encoder_slave
 ```
 
 There are no meaningful automated tests under `test/`; building both environments is the minimum validation. Hardware behavior needs bench testing with motor power made safe.
@@ -76,6 +78,8 @@ Native analog current-sense ordering is:
 Gas pedal remains `A7`. ADS1115 channel `0` is total pack voltage; channel `1` is midpoint voltage. Steering AS5600 uses default I2C address `0x36`. Steering home switch is MCP `2`, active-low with pullup. MCP23017 `INTA` is expected on MCU pin `0`.
 
 The `Pca9685Pwm` wrapper uses direct `Wire` register writes instead of linking the Adafruit PWM driver object because the receiver firmware is close to the Feather 32u4 flash limit. Keep the Adafruit PCA9685 dependency declared unless intentionally revisiting that tradeoff.
+
+The wheel encoder slave environment targets `nanoatmega328`. It reads four AS5600s at address `0x36` behind a TCA9548A at address `0x70`, channels `0..3` = FL/FR/RL/RR, and exposes a 28-byte I2C slave packet at address `0x12`. Receiver polling is scaffolded behind `RX_ENABLE_WHEEL_ENCODER_SLAVE_POLL` and defaults off to preserve flash.
 
 ## Protocol Guidance
 
@@ -126,6 +130,7 @@ Use extra care for:
 - `src/rx_main.cpp` pin/channel maps.
 - ADS1115 divider constants and gain assumptions.
 - `lib/Protocol/Protocol.h` offsets, sizes, and version.
+- `lib/WheelEncoderProtocol/WheelEncoderProtocol.h` wheel packet size/checksum if enabling wheel-speed telemetry.
 - `lib/BTS7960` direction/brake/coast behavior.
 - `lib/DriveSystem` enable, parking brake, and telemetry command recording.
 - `lib/SteeringActuator` homing/calibration/current-protection state transitions.
@@ -141,5 +146,6 @@ Do not move `archive/SoftwarePWM/` back into active `lib/` unless intentionally 
 - Feather 32u4 analog availability for `A6` and `A8` should be confirmed on the exact board/wiring.
 - Steering current thresholds, homing direction, motor direction, travel limits, and software margins are placeholders that require bench calibration.
 - AS5600 raw counts are `0..4095`; one steering output revolution is assumed to be `8192` unwrapped counts because the reference actuator sketch used a 2:1 encoder-to-output ratio.
+- The Nano wheel slave uses the same `Wire` bus as an I2C slave to the receiver and as I2C master to the TCA/AS5600 chain. Reads are scheduled outside callbacks, but bench-test this carefully; use separate buses or a private software bus if it locks up.
 - Transmitter battery telemetry is a TODO and reports `0`.
 - PS2 button bit ordering is assumed by the enum in `src/rx_main.cpp`; confirm against PsxNewLib before changing button behavior.

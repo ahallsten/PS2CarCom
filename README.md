@@ -2,11 +2,12 @@
 
 PS2CarCom is a PlatformIO/Arduino firmware project for a two-microcontroller RC-style vehicle control system. One Adafruit Feather 32u4/RFM95 board is the transmitter and reads a PlayStation 2 controller. A second Feather 32u4/RFM95 board is the vehicle receiver and drives BTS7960 motor controllers over LoRa commands. Steering is a BTS7960-driven actuator with AS5600 magnetic encoder feedback, homing, EEPROM calibration, and current protection.
 
-The project builds the two roles as separate PlatformIO environments:
+The project builds firmware roles as separate PlatformIO environments:
 
 ```sh
 pio run -e transmitter
 pio run -e receiver
+pio run -e wheel_encoder_slave
 ```
 
 ## Architecture
@@ -38,7 +39,9 @@ The receiver uses the PCA9685 for all BTS7960 RPWM/LPWM inputs at 50 Hz. The MCP
 | `include/RadioConfig.h` | Shared RFM95 pins and frequency. |
 | `src/tx_main.cpp` | Transmitter firmware. |
 | `src/rx_main.cpp` | Receiver firmware, hardware map, control decisions, telemetry sampling. |
+| `src/wheel_encoder_slave_main.cpp` | Optional Nano wheel-speed sensor slave using TCA9548A + four AS5600s. |
 | `lib/Protocol/Protocol.h` | Shared control/status packet format. |
+| `lib/WheelEncoderProtocol/` | Compact I2C packet format for the wheel encoder slave. |
 | `lib/VehicleLayout/VehicleLayout.h` | Shared motor/current-sense ordering constants. |
 | `lib/BTS7960/` | Low-level BTS7960 wrapper. |
 | `lib/DriveSystem/` | Four-wheel drive output coordinator. |
@@ -69,6 +72,7 @@ Build, upload, and monitor:
 ```sh
 pio run -e transmitter
 pio run -e receiver
+pio run -e wheel_encoder_slave
 pio run -e transmitter -t upload
 pio run -e receiver -t upload
 pio device monitor -e transmitter -b 115200
@@ -289,6 +293,37 @@ On stale link or missing controller, the receiver resets controller state, clear
 
 LoRa sends still block in `rfm.waitPacketSent()`. The PCA9685 removes software PWM timing pressure, but radio transmission remains the largest intentional blocking operation in the loop.
 
+## Wheel Encoder Slave
+
+`feature/wheel-speed-i2c-slave` adds a third firmware role for an Arduino Nano target:
+
+```sh
+pio run -e wheel_encoder_slave
+```
+
+The slave uses a TCA9548A at I2C address `0x70` and four default-address AS5600 sensors at address `0x36` behind these mux channels:
+
+| Wheel | TCA9548A channel |
+| --- | --- |
+| FL | `0` |
+| FR | `1` |
+| RL | `2` |
+| RR | `3` |
+
+The Nano exposes an I2C slave packet at address `0x12`. Packet size is 28 bytes:
+
+| Byte(s) | Meaning |
+| --- | --- |
+| `0` | Wheel encoder protocol version `1` |
+| `1` | Sequence |
+| `2` | Status/fault flags |
+| `3..10` | Raw AS5600 positions, u16 little-endian, FL/FR/RL/RR |
+| `11..18` | Signed unwrapped deltas since prior sample, i16 |
+| `19..26` | Signed speeds in AS5600 counts/second, i16 |
+| `27` | Additive checksum; all bytes sum to zero |
+
+The Nano uses the same hardware `Wire` bus as an I2C slave to the receiver and as an I2C master to the TCA/AS5600 sensors. Sensor reads are scheduled in `loop()` and callbacks only copy bytes, but this dual-role bus is still a hardware risk. If bench testing shows lockups or missed requests, use a controller with separate I2C buses or move the sensor side to a private/software bus.
+
 ## Troubleshooting
 
 - `RFM95 initialization failed`: check radio power, SPI wiring, and `include/RadioConfig.h`.
@@ -308,4 +343,5 @@ LoRa sends still block in `rfm.waitPacketSent()`. The PCA9685 removes software P
 - Transmitter battery telemetry is stubbed.
 - Upload ports are currently `COM3` for transmitter and `COM10` for receiver; adjust for your host.
 - Receiver firmware is close to the Feather 32u4 flash limit. Verbose receiver control/drive debug is compiled out by default with `RX_PRINT_DECODED_CONTROL=0` and `RX_PRINT_DRIVE_DEBUG=0`.
+- The wheel encoder slave protocol is implemented, but receiver-side polling is compiled out by default with `RX_ENABLE_WHEEL_ENCODER_SLAVE_POLL=0` because the receiver firmware is already near the 32u4 flash limit. Enabling it decodes packets locally; LoRa forwarding is not yet part of the main telemetry packet.
 - There are no automated tests beyond successful PlatformIO builds.
