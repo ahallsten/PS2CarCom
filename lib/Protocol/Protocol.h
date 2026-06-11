@@ -5,7 +5,7 @@
 #include "ControllerState.h"
 #include "VehicleLayout.h"
 
-static const uint8_t PROTOCOL_VERSION = 4;
+static const uint8_t PROTOCOL_VERSION = 5;
 
 enum PacketType : uint8_t {
   PACKET_CONTROL = 1,
@@ -51,6 +51,27 @@ struct StatusMessage {
 
   /** Raw native ADC current-sense readings: FL_L, FL_R, FR_L, FR_R, RL_L, RL_R, RR_L, RR_R, STEER_L, STEER_R. */
   uint16_t currentSense[VEHICLE_CURRENT_SENSE_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+  /** AS5600 raw angle, 0..4095. */
+  uint16_t steeringRawAngle = 0;
+
+  /** Steering actuator position in unwrapped AS5600 counts relative to home. */
+  int32_t steeringPositionCounts = 0;
+
+  /** Steering actuator target in unwrapped AS5600 counts relative to home. */
+  int32_t steeringTargetCounts = 0;
+
+  /** Steering actuator state enum value. */
+  uint8_t steeringState = 0;
+
+  /** Steering flags: calibration valid, homed, home switch active, current limit active. */
+  uint8_t steeringFlags = 0;
+
+  /** Steering fault bitfield. */
+  uint16_t steeringFaultFlags = 0;
+
+  /** Max raw ADC count from the steering BTS7960 current-sense pins. */
+  uint16_t steeringCurrentRaw = 0;
 };
 
 inline int16_t smoothRssi(int16_t sample, int16_t prev) {
@@ -73,11 +94,18 @@ static const uint8_t CONTROL_MESSAGE_SIZE = 10;
  *   [10..11] batteryMidpointMv (u16)
  *   [12..21] motorPwm[5] (i16 each): FL, FR, RL, RR, STEER
  *   [22..41] currentSense[10] (u16 each): FL_L, FL_R, FR_L, FR_R, RL_L, RL_R, RR_L, RR_R, STEER_L, STEER_R
+ *   [42..43] steeringRawAngle (u16, AS5600 raw 0..4095)
+ *   [44..47] steeringPositionCounts (i32, AS5600 counts relative to home)
+ *   [48..51] steeringTargetCounts (i32, AS5600 counts relative to home)
+ *   [52]      steeringState (u8)
+ *   [53]      steeringFlags (u8)
+ *   [54..55] steeringFaultFlags (u16)
+ *   [56..57] steeringCurrentRaw (u16)
  */
-static const uint8_t STATUS_MESSAGE_SIZE = 42;
+static const uint8_t STATUS_MESSAGE_SIZE = 58;
 static const uint8_t MAX_WIRE_PACKET_SIZE = STATUS_MESSAGE_SIZE;
 
-static_assert(STATUS_MESSAGE_SIZE == 42, "STATUS_MESSAGE_SIZE must match the documented wire layout");
+static_assert(STATUS_MESSAGE_SIZE == 58, "STATUS_MESSAGE_SIZE must match the documented wire layout");
 static_assert(MAX_WIRE_PACKET_SIZE >= CONTROL_MESSAGE_SIZE, "wire buffer must hold a control packet");
 
 inline void writeU16LE(uint8_t *dst, uint16_t value) {
@@ -96,6 +124,28 @@ inline void writeI16LE(uint8_t *dst, int16_t value) {
 
 inline int16_t readI16LE(const uint8_t *src) {
   return static_cast<int16_t>(readU16LE(src));
+}
+
+inline void writeU32LE(uint8_t *dst, uint32_t value) {
+  dst[0] = static_cast<uint8_t>(value & 0xFF);
+  dst[1] = static_cast<uint8_t>((value >> 8) & 0xFF);
+  dst[2] = static_cast<uint8_t>((value >> 16) & 0xFF);
+  dst[3] = static_cast<uint8_t>((value >> 24) & 0xFF);
+}
+
+inline uint32_t readU32LE(const uint8_t *src) {
+  return static_cast<uint32_t>(src[0]) |
+         (static_cast<uint32_t>(src[1]) << 8) |
+         (static_cast<uint32_t>(src[2]) << 16) |
+         (static_cast<uint32_t>(src[3]) << 24);
+}
+
+inline void writeI32LE(uint8_t *dst, int32_t value) {
+  writeU32LE(dst, static_cast<uint32_t>(value));
+}
+
+inline int32_t readI32LE(const uint8_t *src) {
+  return static_cast<int32_t>(readU32LE(src));
 }
 
 inline void encodeControlMessage(const ControlMessage &msg,
@@ -146,6 +196,13 @@ inline void encodeStatusMessage(const StatusMessage &msg,
   for (uint8_t i = 0; i < VEHICLE_CURRENT_SENSE_COUNT; ++i) {
     writeU16LE(out + 22 + (i * 2), msg.currentSense[i]);
   }
+  writeU16LE(out + 42, msg.steeringRawAngle);
+  writeI32LE(out + 44, msg.steeringPositionCounts);
+  writeI32LE(out + 48, msg.steeringTargetCounts);
+  out[52] = msg.steeringState;
+  out[53] = msg.steeringFlags;
+  writeU16LE(out + 54, msg.steeringFaultFlags);
+  writeU16LE(out + 56, msg.steeringCurrentRaw);
 }
 
 inline bool decodeStatusMessage(const uint8_t *data, uint8_t len, StatusMessage &msg) {
@@ -168,6 +225,13 @@ inline bool decodeStatusMessage(const uint8_t *data, uint8_t len, StatusMessage 
   for (uint8_t i = 0; i < VEHICLE_CURRENT_SENSE_COUNT; ++i) {
     msg.currentSense[i] = readU16LE(data + 22 + (i * 2));
   }
+  msg.steeringRawAngle = readU16LE(data + 42);
+  msg.steeringPositionCounts = readI32LE(data + 44);
+  msg.steeringTargetCounts = readI32LE(data + 48);
+  msg.steeringState = data[52];
+  msg.steeringFlags = data[53];
+  msg.steeringFaultFlags = readU16LE(data + 54);
+  msg.steeringCurrentRaw = readU16LE(data + 56);
   return true;
 }
 

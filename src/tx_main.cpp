@@ -56,6 +56,13 @@ static uint16_t receiverBatteryTotalMilliVolts = 0;
 static uint16_t receiverBatteryMidpointMilliVolts = 0;
 static int16_t motorPwm[VEHICLE_MOTOR_COUNT] = {0, 0, 0, 0, 0};
 static uint16_t currentSense[VEHICLE_CURRENT_SENSE_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static uint16_t steeringRawAngle = 0;
+static int32_t steeringPositionCounts = 0;
+static int32_t steeringTargetCounts = 0;
+static uint8_t steeringState = 0;
+static uint8_t steeringFlags = 0;
+static uint16_t steeringFaultFlags = 0;
+static uint16_t steeringCurrentRaw = 0;
 static ControllerState lastSentState = kNeutralControllerState;
 static bool lastSentControllerPresent = false;
 static uint8_t controlSequence = 0;
@@ -185,6 +192,13 @@ static void handleIncomingPackets() {
       receiverBatteryMidpointMilliVolts = msg.batteryMidpointMv;
       for (uint8_t i = 0; i < VEHICLE_MOTOR_COUNT; ++i) motorPwm[i] = msg.motorPwm[i];
       for (uint8_t i = 0; i < VEHICLE_CURRENT_SENSE_COUNT; ++i) currentSense[i] = msg.currentSense[i];
+      steeringRawAngle = msg.steeringRawAngle;
+      steeringPositionCounts = msg.steeringPositionCounts;
+      steeringTargetCounts = msg.steeringTargetCounts;
+      steeringState = msg.steeringState;
+      steeringFlags = msg.steeringFlags;
+      steeringFaultFlags = msg.steeringFaultFlags;
+      steeringCurrentRaw = msg.steeringCurrentRaw;
       lastAckedSeq = msg.ackSeq;
 
       // ACK line: seq= is the last control packet the receiver decoded, so
@@ -207,7 +221,21 @@ static void handleIncomingPackets() {
                      ? receiverBatteryTotalMilliVolts - receiverBatteryMidpointMilliVolts
                      : 0);
       Serial.print(F(" steer="));
-      Serial.println(motorPwm[MOTOR_INDEX_STEER]);
+      Serial.print(motorPwm[MOTOR_INDEX_STEER]);
+      Serial.print(F(" steer_raw="));
+      Serial.print(steeringRawAngle);
+      Serial.print(F(" steer_pos="));
+      Serial.print(steeringPositionCounts);
+      Serial.print(F(" steer_tgt="));
+      Serial.print(steeringTargetCounts);
+      Serial.print(F(" steer_state="));
+      Serial.print(steeringState);
+      Serial.print(F(" steer_flags=0x"));
+      Serial.print(steeringFlags, HEX);
+      Serial.print(F(" steer_fault=0x"));
+      Serial.print(steeringFaultFlags, HEX);
+      Serial.print(F(" steer_cur="));
+      Serial.println(steeringCurrentRaw);
     }
   }
 }

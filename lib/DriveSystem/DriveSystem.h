@@ -28,7 +28,7 @@ struct MotorPins {
 };
 
 /**
- * @brief Coordinates the four drive motors plus steering BTS7960 channel.
+ * @brief Coordinates the four wheel drive motors.
  */
 class DriveSystem {
 public:
@@ -37,24 +37,23 @@ public:
               const MotorPins &fl,
               const MotorPins &fr,
               const MotorPins &rl,
-              const MotorPins &rr,
-              const MotorPins &steer);
+              const MotorPins &rr);
 
   void begin();
   void setEnabled(bool enabled);
   void setParkingBrake(bool enabled);
 
-  /** Apply signed PWM commands in FL, FR, RL, RR, steering order. */
-  void applyDrive(int16_t fl, int16_t fr, int16_t rl, int16_t rr, int16_t steer);
+  /** Apply signed PWM commands in FL, FR, RL, RR order. */
+  void applyDrive(int16_t fl, int16_t fr, int16_t rl, int16_t rr);
   void applyDriveAll(int16_t pwm);
   void brake();
   void coast();
   void stop();
 
-  /** Return last allowed signed commands in VehicleMotorIndex order. */
+  /** Return last allowed signed commands in VehicleMotorIndex order; steering is left zero. */
   void getMotorCommands(int16_t out[VEHICLE_MOTOR_COUNT]) const;
 
-  /** Read raw current-sense values in VehicleCurrentSenseIndex order. */
+  /** Read raw current-sense values in VehicleCurrentSenseIndex order; steering entries are left zero. */
   void readCurrentSense(uint16_t out[VEHICLE_CURRENT_SENSE_COUNT]) const;
 
   /**
@@ -80,13 +79,12 @@ private:
   void enableAll();
   void coastAll();
   void brakeAll();
-  void recordCmds(int16_t fl, int16_t fr, int16_t rl, int16_t rr, int16_t steer);
+  void recordCmds(int16_t fl, int16_t fr, int16_t rl, int16_t rr);
 
   BTS7960 _fl;
   BTS7960 _fr;
   BTS7960 _rl;
   BTS7960 _rr;
-  BTS7960 _steer;
 
   bool _enabled = false;
   bool _parkingBrake = false;

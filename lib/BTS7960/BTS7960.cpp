@@ -112,17 +112,16 @@ void BTS7960::stop() {
   coast();
 }
 
-<<<<<<< Updated upstream
 void BTS7960::getPwmSnapshot(Bts7960PwmSnapshot &snapshot) const {
   snapshot = Bts7960PwmSnapshot();
   snapshot.direction = _lastDir;
-  if (!_pwmx) return;
+  if (!_pwm) return;
 
-  _pwmx->getChannelSnapshot(_rPwmCh, snapshot.rpwm);
-  _pwmx->getChannelSnapshot(_lPwmCh, snapshot.lpwm);
-=======
+  _pwm->getChannelSnapshot(_rPwmChannel, snapshot.rpwm);
+  _pwm->getChannelSnapshot(_lPwmChannel, snapshot.lpwm);
+}
+
 void BTS7960::readCurrentSense(uint16_t &lisOut, uint16_t &risOut) const {
   lisOut = analogReadX(_L_IS);
   risOut = analogReadX(_R_IS);
->>>>>>> Stashed changes
 }

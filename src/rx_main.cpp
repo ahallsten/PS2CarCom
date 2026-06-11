@@ -7,7 +7,6 @@
 #include <Wire.h>
 #include <Adafruit_ADS1X15.h>
 #include <Adafruit_MCP23X17.h>
-#include <Adafruit_PWMServoDriver.h>
 
 #include "AxisMap.h"
 #include "ControllerState.h"
@@ -16,13 +15,14 @@
 #include "Pca9685Pwm.h"
 #include "Protocol.h"
 #include "RadioConfig.h"
+#include "SteeringActuator.h"
 
 #ifndef RX_PRINT_DECODED_CONTROL
-#define RX_PRINT_DECODED_CONTROL 1
+#define RX_PRINT_DECODED_CONTROL 0
 #endif
 
 #ifndef RX_PRINT_DRIVE_DEBUG
-#define RX_PRINT_DRIVE_DEBUG 1
+#define RX_PRINT_DRIVE_DEBUG 0
 #endif
 
 #ifndef RX_PRINT_DECODE_ERRORS
@@ -33,7 +33,7 @@
 #define GAS_PEDAL_PIN A7 // adjust to your available analog pin
 #endif
 
-static const float PCA9685_PWM_FREQ_HZ = 50.0f;
+static const uint16_t PCA9685_PWM_FREQ_HZ = 50;
 
 static const uint8_t ADS_BATTERY_TOTAL_CHANNEL = 0;
 static const uint8_t ADS_BATTERY_MIDPOINT_CHANNEL = 1;
@@ -82,12 +82,16 @@ static const uint8_t STEER_LEN = 1;
 static const uint8_t STEER_RIS = A8;
 static const uint8_t STEER_LIS = A6;
 
+static const uint8_t STEER_HOME_SWITCH_MCP_PIN = 2;
+static const uint8_t STEER_HOME_INTERRUPT_PIN = 0;
 static const uint8_t RX_PACKET_LED_PIN = 13;
 
+static const unsigned long STEER_HOME_HOLD_MS = 2000;
+static const unsigned long STEER_CALIBRATION_HOLD_MS = 3000;
+
 static Adafruit_MCP23X17 mcp;
-static Adafruit_PWMServoDriver pca9685;
 static Adafruit_ADS1115 ads1115;
-static Pca9685Pwm pwm(pca9685);
+static Pca9685Pwm pwm;
 static bool adsReady = false;
 
 static const MotorPins kFlPins = {
@@ -135,7 +139,48 @@ static const MotorPins kSteerPins = {
   { STEER_RIS, PinSource::MCU_PIN }
 };
 
-static DriveSystem drive(mcp, pwm, kFlPins, kFrPins, kRlPins, kRrPins, kSteerPins);
+static CurrentProtectionConfig makeSteeringCurrentProtectionConfig() {
+  CurrentProtectionConfig config;
+  config.continuousThresholdRaw = 850;
+  config.peakThresholdRaw = 1000;
+  config.accumulatorTripRaw = 6000UL;
+  config.accumulatorDecayRaw = 120;
+  config.cooldownMs = 1500UL;
+  return config;
+}
+
+static SteeringActuatorConfig makeSteeringConfig() {
+  SteeringActuatorConfig config;
+  config.motorPins = kSteerPins;
+  config.homeSwitchMcpPin = STEER_HOME_SWITCH_MCP_PIN;
+  config.homeSwitchActiveLow = true;
+  config.homingDirection = -1;
+  config.motorDirection = 1;
+  config.homingPwm = 80;
+  config.homingReleasePwm = 70;
+  config.calibrationPwm = 70;
+  config.closedLoopMinPwm = 35;
+  config.closedLoopMaxPwm = 150;
+  config.proportionalDivisorCounts = 24;
+  config.targetDeadbandCounts = 24;
+  config.homingMaxTravelCounts = 20000L;
+  config.calibrationMaxTravelCounts = 24000L;
+  config.softwareLimitMarginCounts = 300L;
+  config.homingDebounceMs = 40UL;
+  config.homingTimeoutMs = 10000UL;
+  config.calibrationTimeoutMs = 15000UL;
+  config.calibrationPauseMs = 350UL;
+  config.calibrationStallRawThreshold = 760;
+  config.calibrationStallSamples = 4;
+  config.calibrationStallMinMs = 120UL;
+  config.currentProtection = makeSteeringCurrentProtectionConfig();
+  return config;
+}
+
+static const SteeringActuatorConfig kSteeringConfig = makeSteeringConfig();
+
+static DriveSystem drive(mcp, pwm, kFlPins, kFrPins, kRlPins, kRrPins);
+static SteeringActuator steering(mcp, pwm, kSteeringConfig);
 static RH_RF95 rfm(RFM95_CS, RFM95_INT);
 
 static ControllerState currentState = kNeutralControllerState;
@@ -165,9 +210,13 @@ enum Button : uint8_t {
 static bool parkingBrake = false;
 static bool driveEnabled = false;
 static bool tankMode = false;
+#if RX_PRINT_DECODED_CONTROL
 static bool controlDebugEnabled = (RX_PRINT_DECODED_CONTROL != 0);
+#endif
+#if RX_PRINT_DRIVE_DEBUG
 static bool driveDebugEnabled = (RX_PRINT_DRIVE_DEBUG != 0);
 static bool forceDriveDebugPrint = false;
+#endif
 static int16_t maximumSpeed = 255;
 static const int16_t kMinimumSpeed = 25;
 
@@ -202,10 +251,12 @@ static uint16_t receiverBatteryMidpointMilliVolts = 0;
 static bool remoteControllerPresent = false;
 static bool needButtonResync = true;
 static bool firmwareBannerPrinted = false;
+#if RX_PRINT_DECODED_CONTROL
 static ControllerState lastDebugState = kNeutralControllerState;
 static bool lastDebugControllerPresent = false;
 static bool haveDebugState = false;
 static unsigned long lastControlDebugMs = 0;
+#endif
 static unsigned long lastDecodeErrorMs = 0;
 static uint16_t decodeErrorCount = 0;
 static const unsigned long CONTROL_DEBUG_PERIOD_MS = 1000;
@@ -215,6 +266,15 @@ static const unsigned long RX_PACKET_LED_OFF_MS = 100;
 static bool rxPacketLedOn = false;
 static bool rxPacketLedPending = false;
 static unsigned long rxPacketLedLastTransitionMs = 0;
+static volatile bool steerHomeInterruptPending = false;
+static unsigned long steerHomeComboSinceMs = 0;
+static unsigned long steerCalibrationComboSinceMs = 0;
+static bool steerHomeComboFired = false;
+static bool steerCalibrationComboFired = false;
+
+static void onSteerHomeInterrupt() {
+  steerHomeInterruptPending = true;
+}
 
 static void maybePrintFirmwareBanner() {
   if (firmwareBannerPrinted || !Serial) return;
@@ -256,24 +316,32 @@ static Button getButtonEnum(uint8_t bit) {
   return static_cast<Button>(bit);
 }
 
+#if RX_PRINT_DECODED_CONTROL || RX_PRINT_DRIVE_DEBUG
 static void printDebugToggle(const __FlashStringHelper *name, bool enabled) {
   printLogPrefix(Serial, F("RX"), F("LOG"), lastControlSeq);
   Serial.print(name);
   Serial.print(F("="));
   Serial.println(enabled ? F("ON") : F("OFF"));
 }
+#endif
 
 static void handleButtonPress(uint8_t bit) {
   if (bit > 15) return;
   unsigned long now = millis();
   if (now - lastButtonActionMs[bit] < BUTTON_DEBOUNCE_MS) return;
   lastButtonActionMs[bit] = now;
+  bool steeringServiceModifier =
+    (currentState.buttonWord & ((static_cast<uint16_t>(1U) << L3) |
+                                (static_cast<uint16_t>(1U) << R3))) ==
+    ((static_cast<uint16_t>(1U) << L3) | (static_cast<uint16_t>(1U) << R3));
 
   switch (getButtonEnum(bit)) {
     case SELECT:
+      if (steeringServiceModifier) break;
       parkingBrake = !parkingBrake;
       break;
     case START:
+      if (steeringServiceModifier) break;
       tankMode = !tankMode;
       break;
     case UP:
@@ -291,17 +359,21 @@ static void handleButtonPress(uint8_t bit) {
       maximumSpeed = 255;
       break;
     case L2:
+#if RX_PRINT_DRIVE_DEBUG
       driveDebugEnabled = !driveDebugEnabled;
       forceDriveDebugPrint = driveDebugEnabled;
       printDebugToggle(F("DRV"), driveDebugEnabled);
+#endif
       break;
     case R2:
       driveEnabled = !driveEnabled;
       break;
     case L1:
+#if RX_PRINT_DECODED_CONTROL
       controlDebugEnabled = !controlDebugEnabled;
       haveDebugState = false;
       printDebugToggle(F("CTRL"), controlDebugEnabled);
+#endif
       break;
     default:
       break;
@@ -309,6 +381,51 @@ static void handleButtonPress(uint8_t bit) {
 }
 
 static void onRisingEdge(uint8_t bit) { handleButtonPress(bit); }
+
+static bool isButtonHeld(Button button) {
+  if (button == UNKNOWN) return false;
+  return (currentState.buttonWord & (static_cast<uint16_t>(1U) << static_cast<uint8_t>(button))) != 0;
+}
+
+static bool consumeHeldCombo(bool held,
+                             unsigned long holdMs,
+                             unsigned long &sinceMs,
+                             bool &fired) {
+  unsigned long now = millis();
+  if (!held) {
+    sinceMs = 0;
+    fired = false;
+    return false;
+  }
+
+  if (sinceMs == 0) sinceMs = now;
+  if (!fired && (now - sinceMs >= holdMs)) {
+    fired = true;
+    return true;
+  }
+
+  return false;
+}
+
+static void resetSteeringComboHolds() {
+  steerHomeComboSinceMs = 0;
+  steerCalibrationComboSinceMs = 0;
+  steerHomeComboFired = false;
+  steerCalibrationComboFired = false;
+}
+
+static bool consumeSteeringHomeRequest() {
+  bool held = isButtonHeld(L3) && isButtonHeld(R3) && isButtonHeld(SELECT);
+  return consumeHeldCombo(held, STEER_HOME_HOLD_MS, steerHomeComboSinceMs, steerHomeComboFired);
+}
+
+static bool consumeSteeringCalibrationRequest() {
+  bool held = isButtonHeld(L3) && isButtonHeld(R3) && isButtonHeld(START);
+  return consumeHeldCombo(held,
+                          STEER_CALIBRATION_HOLD_MS,
+                          steerCalibrationComboSinceMs,
+                          steerCalibrationComboFired);
+}
 
 static int16_t clampSpeed(int16_t pwm) {
   int16_t magnitude = abs(pwm);
@@ -375,7 +492,20 @@ static void sendStatusHeartbeat() {
   msg.batteryMidpointMv = receiverBatteryMidpointMilliVolts;
   msg.ackSeq = lastControlSeq;
   drive.getMotorCommands(msg.motorPwm);
+  msg.motorPwm[MOTOR_INDEX_STEER] = steering.lastCommand();
   drive.readCurrentSense(msg.currentSense);
+  steering.readCurrentSense(msg.currentSense[CURRENT_INDEX_STEER_L],
+                            msg.currentSense[CURRENT_INDEX_STEER_R]);
+
+  SteeringTelemetry steeringTelemetry;
+  steering.getTelemetry(steeringTelemetry);
+  msg.steeringRawAngle = steeringTelemetry.rawAngle;
+  msg.steeringPositionCounts = steeringTelemetry.positionCounts;
+  msg.steeringTargetCounts = steeringTelemetry.targetCounts;
+  msg.steeringState = steeringTelemetry.state;
+  msg.steeringFlags = steeringTelemetry.flags;
+  msg.steeringFaultFlags = steeringTelemetry.faultFlags;
+  msg.steeringCurrentRaw = steeringTelemetry.currentRaw;
 
   uint8_t buffer[STATUS_MESSAGE_SIZE] = {0};
   encodeStatusMessage(msg, buffer);
@@ -384,6 +514,7 @@ static void sendStatusHeartbeat() {
   }
 }
 
+#if RX_PRINT_DECODED_CONTROL
 static void printDecodedControlDebug(const ControlMessage &msg) {
   if (!controlDebugEnabled) return;
 
@@ -406,6 +537,11 @@ static void printDecodedControlDebug(const ControlMessage &msg) {
   haveDebugState = true;
   lastControlDebugMs = now;
 }
+#else
+static void printDecodedControlDebug(const ControlMessage &msg) {
+  (void)msg;
+}
+#endif
 
 static void printDecodeErrorDebug(const uint8_t *buffer, uint8_t len) {
 #if RX_PRINT_DECODE_ERRORS
@@ -465,7 +601,7 @@ static void handleIncomingPackets() {
   }
 }
 
-
+#if RX_PRINT_DRIVE_DEBUG
 static int16_t lastDbgLeftY = 0;
 static int16_t lastDbgLeftX = 0;
 static int16_t lastDbgRightY = 0;
@@ -476,17 +612,22 @@ static int16_t lastDbgRightDriveCommand = 0;
 static int16_t lastDbgMotorCommand[4] = {0, 0, 0, 0};
 static uint8_t lastDbgMotorRDuty[4] = {0, 0, 0, 0};
 static uint8_t lastDbgMotorLDuty[4] = {0, 0, 0, 0};
+static int16_t lastDbgSteeringCommand = 0;
+static int32_t lastDbgSteeringPosition = 0;
+static int32_t lastDbgSteeringTarget = 0;
+static uint8_t lastDbgSteeringState = 0;
+static uint16_t lastDbgSteeringFaults = 0;
 static bool lastDbgEnabled = false;
 static bool lastDbgTankMode = false;
 static bool lastDbgParkingBrake = false;
 static bool haveDriveDebug = false;
 static unsigned long lastDriveDebugMs = 0;
 
-static uint8_t snapshotDuty(const SoftwarePwmSnapshot &snapshot) {
+static uint8_t snapshotDuty(const Pca9685PwmSnapshot &snapshot) {
   return snapshot.valid ? snapshot.duty : 0;
 }
 
-static void printPwmSideDebug(char side, const SoftwarePwmSnapshot &snapshot) {
+static void printPwmSideDebug(char side, const Pca9685PwmSnapshot &snapshot) {
   Serial.print(' ');
   Serial.print(side);
   if (!snapshot.valid) {
@@ -494,11 +635,12 @@ static void printPwmSideDebug(char side, const SoftwarePwmSnapshot &snapshot) {
     return;
   }
 
-  Serial.print(F("@"));
-  Serial.print(snapshot.pinDef.pin);
+  Serial.print(F("@ch"));
+  Serial.print(snapshot.channel);
   Serial.print(F("="));
   Serial.print(snapshot.duty);
-  Serial.print(snapshot.state ? F("/H") : F("/L"));
+  Serial.print(F("/"));
+  Serial.print(snapshot.ticks);
 }
 
 static void printMotorPwmDebug(const __FlashStringHelper *name,
@@ -522,8 +664,11 @@ static void maybePrintDriveDebug() {
 
   int16_t motorCommand[4] = {0, 0, 0, 0};
   Bts7960PwmSnapshot motorPwm[4];
+  SteeringTelemetry steeringTelemetry;
   drive.getLastCommands(motorCommand);
   drive.getPwmSnapshots(motorPwm);
+  steering.getTelemetry(steeringTelemetry);
+  int16_t steeringCommand = steering.lastCommand();
 
   bool motorChanged = false;
   for (uint8_t i = 0; i < 4; ++i) {
@@ -544,6 +689,11 @@ static void maybePrintDriveDebug() {
                  leftDriveCommand != lastDbgLeftDriveCommand ||
                  rightDriveCommand != lastDbgRightDriveCommand ||
                  motorChanged ||
+                 steeringCommand != lastDbgSteeringCommand ||
+                 steeringTelemetry.positionCounts != lastDbgSteeringPosition ||
+                 steeringTelemetry.targetCounts != lastDbgSteeringTarget ||
+                 steeringTelemetry.state != lastDbgSteeringState ||
+                 steeringTelemetry.faultFlags != lastDbgSteeringFaults ||
                  driveEnabled != lastDbgEnabled || tankMode != lastDbgTankMode ||
                  parkingBrake != lastDbgParkingBrake;
   if (!changed && (now - lastDriveDebugMs < CONTROL_DEBUG_PERIOD_MS)) return;
@@ -573,6 +723,21 @@ static void maybePrintDriveDebug() {
   printMotorPwmDebug(F("FR"), motorCommand[1], motorPwm[1]);
   printMotorPwmDebug(F("RL"), motorCommand[2], motorPwm[2]);
   printMotorPwmDebug(F("RR"), motorCommand[3], motorPwm[3]);
+  Serial.print(F(" STR(cmd="));
+  Serial.print(steeringCommand);
+  Serial.print(F(" pos="));
+  Serial.print(steeringTelemetry.positionCounts);
+  Serial.print(F(" tgt="));
+  Serial.print(steeringTelemetry.targetCounts);
+  Serial.print(F(" state="));
+  Serial.print(steeringTelemetry.state);
+  Serial.print(F(" flags=0x"));
+  Serial.print(steeringTelemetry.flags, HEX);
+  Serial.print(F(" fault=0x"));
+  Serial.print(steeringTelemetry.faultFlags, HEX);
+  Serial.print(F(" cur="));
+  Serial.print(steeringTelemetry.currentRaw);
+  Serial.print(F(")"));
   Serial.println();
 
   lastDbgLeftY = leftYPWM;
@@ -587,6 +752,11 @@ static void maybePrintDriveDebug() {
     lastDbgMotorRDuty[i] = snapshotDuty(motorPwm[i].rpwm);
     lastDbgMotorLDuty[i] = snapshotDuty(motorPwm[i].lpwm);
   }
+  lastDbgSteeringCommand = steeringCommand;
+  lastDbgSteeringPosition = steeringTelemetry.positionCounts;
+  lastDbgSteeringTarget = steeringTelemetry.targetCounts;
+  lastDbgSteeringState = steeringTelemetry.state;
+  lastDbgSteeringFaults = steeringTelemetry.faultFlags;
   lastDbgEnabled = driveEnabled;
   lastDbgTankMode = tankMode;
   lastDbgParkingBrake = parkingBrake;
@@ -594,13 +764,21 @@ static void maybePrintDriveDebug() {
   forceDriveDebugPrint = false;
   lastDriveDebugMs = now;
 }
+#else
+static void maybePrintDriveDebug() {
+}
+#endif
 
 static void controlsDecision() {
+  bool homeInterruptPending = steerHomeInterruptPending;
+  steerHomeInterruptPending = false;
+
   if (!hasFreshControlLink()) {
     currentState = kNeutralControllerState;
     previousState = kNeutralControllerState;
     buttonEdges.reset(0);
     needButtonResync = true;
+    resetSteeringComboHolds();
     driveEnabled = false;
     leftYPWM = 0;
     leftXPWM = 0;
@@ -611,6 +789,7 @@ static void controlsDecision() {
     rightDriveCommand = 0;
     drive.setEnabled(false);
     drive.applyDriveAll(0);
+    steering.update(false, 0, false, false, homeInterruptPending);
     return;
   }
 
@@ -630,27 +809,23 @@ static void controlsDecision() {
 
   pedalDriveValue = getGasPedalDriveValue();
 
-<<<<<<< Updated upstream
   leftDriveCommand = (clampSpeed(leftYPWM) * pedalDriveValue) / 255;
   rightDriveCommand = (clampSpeed(tankMode ? rightYPWM : leftYPWM) * pedalDriveValue) / 255;
+  bool homeRequested = consumeSteeringHomeRequest();
+  bool calibrationRequested = consumeSteeringCalibrationRequest();
+  bool steeringOutputAllowed = remoteControllerPresent && driveEnabled && !parkingBrake;
 
   drive.setEnabled(driveEnabled);
   drive.setParkingBrake(parkingBrake);
   drive.applyDrive(leftDriveCommand, rightDriveCommand, leftDriveCommand, rightDriveCommand);
 
-  uint8_t steerPwm = static_cast<uint8_t>(constrain(rightXPWM + 127, 0, 255));
-  analogWrite(STEER_PWM, steerPwm);
-=======
-  int16_t leftDrive = (clampSpeed(leftYPWM) * pedal) / 255;
-  int16_t rightDrive = (clampSpeed(tankMode ? rightYPWM : leftYPWM) * pedal) / 255;
-  int16_t steerDrive = rightXPWM;
-
-  drive.setEnabled(driveEnabled);
-  drive.setParkingBrake(parkingBrake);
-  drive.applyDrive(leftDrive, rightDrive, leftDrive, rightDrive, steerDrive);
+  steering.update(steeringOutputAllowed,
+                  rightXPWM,
+                  homeRequested,
+                  calibrationRequested,
+                  homeInterruptPending);
 
   maybePrintDriveDebug();
->>>>>>> Stashed changes
 }
 
 void setup() {
@@ -680,6 +855,18 @@ void setup() {
   }
 
   drive.begin();
+  steering.begin();
+  pinMode(STEER_HOME_INTERRUPT_PIN, INPUT_PULLUP);
+  mcp.setupInterrupts(false, false, LOW);
+  mcp.setupInterruptPin(STEER_HOME_SWITCH_MCP_PIN, CHANGE);
+  mcp.clearInterrupts();
+  int steerHomeInterrupt = digitalPinToInterrupt(STEER_HOME_INTERRUPT_PIN);
+  if (steerHomeInterrupt != NOT_AN_INTERRUPT) {
+    attachInterrupt(steerHomeInterrupt, onSteerHomeInterrupt, CHANGE);
+  } else {
+    Serial.println(F("Steering home interrupt pin is not interrupt-capable"));
+  }
+
   drive.setEnabled(false);
   drive.setParkingBrake(false);
 
@@ -707,11 +894,6 @@ void loop() {
   handleIncomingPackets();
   controlsDecision();
   sendStatusHeartbeat();
-<<<<<<< Updated upstream
-  pwmx.update();
-  maybePrintDriveDebug();
-=======
->>>>>>> Stashed changes
   updateRxPacketLed();
 }
 

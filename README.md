@@ -1,6 +1,6 @@
 # PS2CarCom
 
-PS2CarCom is a PlatformIO/Arduino firmware project for a two-microcontroller RC-style vehicle control system. One Adafruit Feather 32u4/RFM95 board is the transmitter and reads a PlayStation 2 controller. A second Feather 32u4/RFM95 board is the vehicle receiver and drives BTS7960 motor controllers over LoRa commands.
+PS2CarCom is a PlatformIO/Arduino firmware project for a two-microcontroller RC-style vehicle control system. One Adafruit Feather 32u4/RFM95 board is the transmitter and reads a PlayStation 2 controller. A second Feather 32u4/RFM95 board is the vehicle receiver and drives BTS7960 motor controllers over LoRa commands. Steering is a BTS7960-driven actuator with AS5600 magnetic encoder feedback, homing, EEPROM calibration, and current protection.
 
 The project builds the two roles as separate PlatformIO environments:
 
@@ -22,12 +22,12 @@ Transmitter Feather 32u4 + RFM95
     v
 Receiver Feather 32u4 + RFM95
     |
-    | I2C: MCP23017 enables, PCA9685 PWM, ADS1115 battery ADC
+    | I2C: MCP23017 enables/home switch, PCA9685 PWM, ADS1115 battery ADC, AS5600 steering encoder
     v
-Five BTS7960 drivers: FL, FR, RL, RR, steering
+Four drive BTS7960s + one closed-loop steering BTS7960
 ```
 
-The receiver uses the PCA9685 for all BTS7960 RPWM/LPWM inputs at 50 Hz. The MCP23017 is still used for BTS7960 enable pins. Steering is treated as another signed BTS7960 motor channel, not as a hobby servo or `analogWrite()` output.
+The receiver uses the PCA9685 for all BTS7960 RPWM/LPWM inputs at 50 Hz. The MCP23017 is still used for BTS7960 enable pins and the steering home switch. The four wheel motors are open-loop signed PWM outputs; steering is closed-loop against an AS5600 position sensor.
 
 ## Repository Layout
 
@@ -41,8 +41,10 @@ The receiver uses the PCA9685 for all BTS7960 RPWM/LPWM inputs at 50 Hz. The MCP
 | `lib/Protocol/Protocol.h` | Shared control/status packet format. |
 | `lib/VehicleLayout/VehicleLayout.h` | Shared motor/current-sense ordering constants. |
 | `lib/BTS7960/` | Low-level BTS7960 wrapper. |
-| `lib/DriveSystem/` | Five-driver vehicle output coordinator. |
-| `lib/Pca9685Pwm/` | Thin PCA9685 PWM adapter. |
+| `lib/DriveSystem/` | Four-wheel drive output coordinator. |
+| `lib/SteeringActuator/` | Steering BTS7960, AS5600 unwrap logic, homing, calibration, EEPROM, and current protection. |
+| `lib/CurrentProtection/` | Raw-ADC current trip/cooldown helper. |
+| `lib/Pca9685Pwm/` | Thin PCA9685 PWM adapter. It uses direct `Wire` register writes to fit the Feather 32u4 flash budget. |
 | `lib/AxisMap/` | Stick dead-zone and PWM mapping helpers. |
 | `lib/Controller/` | Controller state, button edges, and serial debug helpers. |
 | `archive/SoftwarePWM/` | Previous software PWM implementation, preserved but inactive. |
@@ -60,6 +62,7 @@ Declared library dependencies:
 - Adafruit MCP23017 Arduino Library
 - Adafruit PWM Servo Driver Library
 - Adafruit ADS1X15
+- AS5600 by Rob Tillaart
 
 Build, upload, and monitor:
 
@@ -115,12 +118,13 @@ The receiver:
 
 1. Receives control packets from the transmitter.
 2. Applies link-loss and controller-present failsafes.
-3. Converts stick values into signed drive and steering commands.
+3. Converts stick values into signed drive commands and a closed-loop steering target.
 4. Scales drive motor output by the gas pedal on native analog pin `A7`.
-5. Sends five BTS7960 signed PWM commands through the PCA9685.
-6. Samples current sense on native analog inputs.
-7. Samples pack total and midpoint voltage through ADS1115 channels.
-8. Sends status telemetry every 250 ms.
+5. Sends four wheel BTS7960 signed PWM commands through the PCA9685.
+6. Drives the steering BTS7960 only after valid calibration, homing, link/drive gates, and current protection checks pass.
+7. Samples current sense on native analog inputs.
+8. Samples pack total and midpoint voltage through ADS1115 channels.
+9. Sends status telemetry every 250 ms.
 
 ### Receiver Hardware Map
 
@@ -161,6 +165,9 @@ Other receiver inputs:
 | Gas pedal | `A7` |
 | Battery total voltage | ADS1115 channel `0` |
 | Battery midpoint voltage | ADS1115 channel `1` |
+| Steering AS5600 | I2C address `0x36` |
+| Steering home switch | MCP `2`, active-low pullup |
+| MCP23017 INTA | MCU pin `0` |
 | RX packet LED | MCU pin `13` |
 
 The code assumes the Feather 32u4 board variant exposes `A6` and `A8`. Confirm this against the exact Feather and wiring before depending on steering current telemetry.
@@ -200,14 +207,33 @@ Analog stick behavior:
 - Left stick Y controls left-side drive.
 - In normal mode, left stick Y also controls right-side drive.
 - In tank mode, right stick Y controls right-side drive.
-- Right stick X controls the steering BTS7960 command.
-- Left stick X is mapped and printed for debug, but is not currently used for mixing.
+- Right stick X maps to a steering target between calibrated software limits.
+- Left stick X is mapped but is not currently used for mixing.
 
-The gas pedal scales the four drive motors from zero to full command. Steering is not scaled by the gas pedal, but it is still gated by link health, drive enable, and parking brake through `DriveSystem`.
+The gas pedal scales the four drive motors from zero to full command. Steering is not scaled by the gas pedal, but steering output is still gated by link health, controller-present status, R2 drive enable, parking brake off, valid calibration, completed homing, and current-protection state.
+
+Steering service commands are held-button combos:
+
+| Combo | Hold time | Action |
+| --- | --- | --- |
+| L3 + R3 + Select | 2 s | Run steering home routine. |
+| L3 + R3 + Start | 3 s | Run full mechanical-limit calibration, then save EEPROM calibration. |
+
+Select and Start do not toggle parking brake/tank mode while L3+R3 are held for steering service.
+
+### Steering Calibration
+
+Steering calibration is stored in EEPROM address `0` with magic `STR1`, version `1`, struct size, home offset, mechanical/software min/max counts, center counts, raw AS5600 angle at save, flags, and a Fletcher16 checksum.
+
+AS5600 raw readings are `0..4095`. The steering actuator assumes one steering output revolution is `8192` unwrapped AS5600 counts because the reference actuator sketch used a 2:1 encoder-to-output ratio.
+
+If EEPROM is valid, startup enters `NEEDS_HOME`; the operator must run L3+R3+Select before normal closed-loop steering. If EEPROM is invalid, steering stays disabled until the L3+R3+Start calibration command is held. Full calibration homes first, moves slowly to each mechanical stop, detects stops from filtered steering current raw ADC, adds software margins, then saves the result.
+
+Current thresholds and calibration travel limits are safe placeholders in `src/rx_main.cpp`; bench-test with motor power controlled before relying on them.
 
 ## Protocol
 
-`lib/Protocol/Protocol.h` defines protocol version `4`. Both packet types begin with:
+`lib/Protocol/Protocol.h` defines protocol version `5`. Both packet types begin with:
 
 | Byte | Meaning |
 | --- | --- |
@@ -228,7 +254,7 @@ Control packet, 10 bytes:
 | `8` | Right stick X |
 | `9` | Right stick Y |
 
-Status packet, 42 bytes:
+Status packet, 58 bytes:
 
 | Byte(s) | Meaning |
 | --- | --- |
@@ -242,6 +268,13 @@ Status packet, 42 bytes:
 | `10..11` | Battery midpoint millivolts, u16 little-endian |
 | `12..21` | `motorPwm[5]`, signed i16: FL, FR, RL, RR, STEER |
 | `22..41` | `currentSense[10]`, raw u16 ADC counts: FL_L, FL_R, FR_L, FR_R, RL_L, RL_R, RR_L, RR_R, STEER_L, STEER_R |
+| `42..43` | Steering AS5600 raw angle, u16 `0..4095` |
+| `44..47` | Steering position, i32 unwrapped AS5600 counts relative to home |
+| `48..51` | Steering target, i32 unwrapped AS5600 counts relative to home |
+| `52` | Steering state enum |
+| `53` | Steering flags: calibration valid, homed, home switch active, current limit active |
+| `54..55` | Steering fault flags, u16 |
+| `56..57` | Steering current raw, max of steering L_IS/R_IS ADC counts |
 
 The transmitter and receiver must be built from matching protocol code. There is no compatibility shim for older v2/v3 packets.
 
@@ -264,7 +297,7 @@ LoRa sends still block in `rfm.waitPacketSent()`. The PCA9685 removes software P
 - Controller repeatedly appears/disappears: check PS2 wiring and ATT/CMD/DAT/CLK pins.
 - Receiver link never becomes OK: confirm matching protocol version, frequency, modem config, and opposite firmware roles.
 - Motors do not move: confirm R2 drive enable, Select parking brake state, gas pedal reading, fresh link, PCA9685 channels, MCP enable wiring, and BTS7960 power.
-- Steering does not move: confirm the steering BTS7960 is wired to PCA channels `8/9`, MCP enables `0/1`, and the receiver link/drive gates are active.
+- Steering does not move: confirm the steering BTS7960 is wired to PCA channels `8/9`, MCP enables `0/1`, AS5600 is present at `0x36`, the home switch is on MCP `2`, calibration is valid, homing has completed, and the receiver link/drive gates are active.
 
 ## Known Limitations
 
@@ -273,5 +306,6 @@ LoRa sends still block in `rfm.waitPacketSent()`. The PCA9685 removes software P
 - Battery divider ratios are placeholders and require calibration.
 - Current telemetry is raw ADC counts, not amps. The BTS7960 board current-sense scaling is not documented here.
 - Transmitter battery telemetry is stubbed.
-- Upload ports are not pinned in `platformio.ini`.
+- Upload ports are currently `COM3` for transmitter and `COM10` for receiver; adjust for your host.
+- Receiver firmware is close to the Feather 32u4 flash limit. Verbose receiver control/drive debug is compiled out by default with `RX_PRINT_DECODED_CONTROL=0` and `RX_PRINT_DRIVE_DEBUG=0`.
 - There are no automated tests beyond successful PlatformIO builds.
