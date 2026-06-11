@@ -52,8 +52,10 @@ static const unsigned long LINK_TIMEOUT_MS = 500;
 static int16_t rssiRawTx = 0;
 static int16_t rssiSmoothTx = 0;
 static uint16_t transmitterBatteryMilliVolts = 0;
-static uint16_t receiverBatteryMilliVolts = 0;
-static uint8_t motorPercents[4] = {0, 0, 0, 0};
+static uint16_t receiverBatteryTotalMilliVolts = 0;
+static uint16_t receiverBatteryMidpointMilliVolts = 0;
+static int16_t motorPwm[VEHICLE_MOTOR_COUNT] = {0, 0, 0, 0, 0};
+static uint16_t currentSense[VEHICLE_CURRENT_SENSE_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static ControllerState lastSentState = kNeutralControllerState;
 static bool lastSentControllerPresent = false;
 static uint8_t controlSequence = 0;
@@ -157,7 +159,7 @@ static void sendStatusHeartbeat() {
   msg.controllerPresent = haveController;
   msg.rssiRaw = rssiRawTx;
   msg.rssiSmooth = rssiSmoothTx;
-  msg.batteryMv = transmitterBatteryMilliVolts;
+  msg.batteryTotalMv = transmitterBatteryMilliVolts;
 
   uint8_t buffer[STATUS_MESSAGE_SIZE] = {0};
   encodeStatusMessage(msg, buffer);
@@ -179,8 +181,10 @@ static void handleIncomingPackets() {
       rxLinkOk = msg.linkOk;
       rssiRawTx = rfm.lastRssi();
       rssiSmoothTx = smoothRssi(rssiRawTx, rssiSmoothTx);
-      receiverBatteryMilliVolts = msg.batteryMv;
-      memcpy(motorPercents, msg.motorPct, sizeof(motorPercents));
+      receiverBatteryTotalMilliVolts = msg.batteryTotalMv;
+      receiverBatteryMidpointMilliVolts = msg.batteryMidpointMv;
+      for (uint8_t i = 0; i < VEHICLE_MOTOR_COUNT; ++i) motorPwm[i] = msg.motorPwm[i];
+      for (uint8_t i = 0; i < VEHICLE_CURRENT_SENSE_COUNT; ++i) currentSense[i] = msg.currentSense[i];
       lastAckedSeq = msg.ackSeq;
 
       // ACK line: seq= is the last control packet the receiver decoded, so
@@ -192,8 +196,18 @@ static void handleIncomingPackets() {
       Serial.print(msg.linkOk ? F("OK") : F("NO"));
       Serial.print(F(" rssi="));
       Serial.print(rssiRawTx);
-      Serial.print(F(" rxbatt="));
-      Serial.println(receiverBatteryMilliVolts);
+      Serial.print(F(" rxbatt_total="));
+      Serial.print(receiverBatteryTotalMilliVolts);
+      Serial.print(F(" rxbatt_mid="));
+      Serial.print(receiverBatteryMidpointMilliVolts);
+      Serial.print(F(" rxbatt_1="));
+      Serial.print(receiverBatteryMidpointMilliVolts);
+      Serial.print(F(" rxbatt_2="));
+      Serial.print(receiverBatteryTotalMilliVolts > receiverBatteryMidpointMilliVolts
+                     ? receiverBatteryTotalMilliVolts - receiverBatteryMidpointMilliVolts
+                     : 0);
+      Serial.print(F(" steer="));
+      Serial.println(motorPwm[MOTOR_INDEX_STEER]);
     }
   }
 }

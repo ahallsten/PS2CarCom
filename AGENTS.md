@@ -7,22 +7,21 @@ Operational notes for future Codex/agent work in this repository.
 PS2CarCom is a PlatformIO Arduino project for two Adafruit Feather 32u4/RFM95 boards:
 
 - Transmitter: reads a PS2 controller with PsxNewLib and sends control packets over RadioHead `RH_RF95`.
-- Receiver: receives control packets, reads a pedal ADC input, drives a steering PWM output, and controls four BTS7960 motor drivers through an MCP23017 GPIO expander plus software PWM.
+- Receiver: receives control packets, reads a gas pedal ADC input, drives five BTS7960 channels through a PCA9685 PWM expander, controls BTS7960 enable pins through an MCP23017, reads BTS7960 current-sense pins on native analog inputs, and reads pack battery telemetry from an ADS1115.
 
-This branch has separate PlatformIO environments for each firmware role: `transmitter` and `receiver`. Role macros are supplied by `platformio.ini` build flags.
+Roles are selected by PlatformIO environments: `transmitter` and `receiver`. Do not edit `include/RoleConfig.h` to switch roles.
 
 ## First Files To Inspect
 
-- `platformio.ini`: transmitter/receiver environments and role build flags.
-- `include/RoleConfig.h`: compile-time guard. Exactly one of `TRANSMITTER` or `RECEIVER` must be defined by the active environment.
-- `include/RadioConfig.h`: shared RFM95 pins and frequency.
-- `lib/Protocol/Protocol.h`: wire protocol, packet sizes, version, flags, and encode/decode logic.
-- `src/tx_main.cpp`: PS2 controller handling and transmitter heartbeats.
-- `src/rx_main.cpp`: receiver pin map, control decisions, stick mapping, pedal scaling, link-loss failsafe, and steering/motor output.
-- `lib/DriveSystem/`, `lib/BTS7960/`, `lib/SoftwarePWM/`: motor driver behavior.
-- `lib/AxisMap/` and `lib/Controller/`: stick mapping, button edge tracking, and debug printing.
-
-`sketchPad.txt` is currently unused by the active TX/RX firmware. Treat it as legacy or experimental unless a task says otherwise. (The former unused `lib/Joystick`, `lib/MCPPWM`, and `lib/Utils` libraries were removed; `SoftwarePWMX` is the sole MCP/MCU software-PWM path.)
+- `platformio.ini`: role environments, dependencies, build-version script.
+- `include/RoleConfig.h`: compile-time guard requiring exactly one role macro.
+- `include/RadioConfig.h`: shared RFM95 pins/frequency.
+- `lib/Protocol/Protocol.h`: protocol version, packet sizes, flags, and encode/decode offsets.
+- `lib/VehicleLayout/VehicleLayout.h`: motor and current-sense array ordering.
+- `src/tx_main.cpp`: PS2 handling, control send cadence, status receive logging.
+- `src/rx_main.cpp`: receiver hardware map, ADS1115 scaling, PCA9685 setup, control decisions, link failsafe, telemetry cadence.
+- `lib/BTS7960/`, `lib/DriveSystem/`, `lib/Pca9685Pwm/`: motor output behavior.
+- `archive/SoftwarePWM/`: old software PWM implementation, preserved but inactive.
 
 ## Build And Validation Commands
 
@@ -37,56 +36,97 @@ pio device monitor -e transmitter -b 115200
 pio device monitor -e receiver -b 115200
 ```
 
-To validate both firmwares, build both `transmitter` and `receiver`. Do not edit `include/RoleConfig.h` to switch roles.
+In this workspace, `/usr/bin/pio` may be broken with the system Python/click version. The working command during this refactor was:
 
-This repo currently has no meaningful tests under `test/`. A build is the minimum software validation; hardware behavior needs bench testing with motors made safe.
+```sh
+~/.platformio/penv/bin/pio run -e transmitter
+~/.platformio/penv/bin/pio run -e receiver
+```
 
-## Coding Style
+There are no meaningful automated tests under `test/`; building both environments is the minimum validation. Hardware behavior needs bench testing with motor power made safe.
 
-- Arduino C++ with PlatformIO private libraries under `lib/<Name>/`.
-- Newer code uses two-space indentation, include guards, file-local `static` constants/functions, and Arduino `F()` strings for serial output.
-- Keep changes small and explicit. Avoid broad refactors around motor control, protocol, or pin mapping unless the task requires them.
-- Prefer shared protocol/types in `lib/Protocol` and `lib/Controller` over duplicating structs in TX/RX code.
+## Current Hardware Map
 
-## Hardware-Sensitive Areas
+PCA9685 runs at 50 Hz and owns all BTS7960 PWM inputs:
 
-Edit these carefully:
+- FL: PCA `0/1` = RPWM/LPWM
+- FR: PCA `2/3`
+- RL: PCA `4/5`
+- RR: PCA `6/7`
+- Steering: PCA `8/9`
 
-- `src/rx_main.cpp` motor pin constants and `MotorPins` source selections (`MCP_PIN` vs `MCU_PIN`).
-- `src/rx_main.cpp` `GAS_PEDAL_PIN`, `RX_BATTERY_PIN`, `STEER_PWM`, and battery scaling.
-- `include/RadioConfig.h` radio pins/frequency.
-- `src/tx_main.cpp` PS2 ATT/CMD/DAT/CLK pins.
-- `lib/BTS7960` and `lib/DriveSystem` enable, brake, coast, and PWM behavior.
-- `lib/SoftwarePWM`, because the receiver allocates exactly eight channels for four motor drivers.
+MCP23017 owns BTS7960 enables:
 
-Always preserve link-loss behavior unless explicitly changing failsafe design: stale link or missing controller should neutralize controller state, disable drive, and command zero motor output.
+- FL: REN/LEN `10/11`
+- FR: `12/13`
+- RL: `8/9`
+- RR: `14/15`
+- Steering: `0/1`
+
+Native analog current-sense ordering is:
+
+- `FL_L=A1`, `FL_R=A0`
+- `FR_L=A3`, `FR_R=A2`
+- `RL_L=A5`, `RL_R=A4`
+- `RR_L=9`, `RR_R=6`
+- `STEER_L=A6`, `STEER_R=A8`
+
+Gas pedal remains `A7`. ADS1115 channel `0` is total pack voltage; channel `1` is midpoint voltage. ADS1115 and PCA9685 use library default I2C addresses unless code is changed.
 
 ## Protocol Guidance
 
-`lib/Protocol/Protocol.h` is compatibility-critical. Current protocol version is `2`.
+`lib/Protocol/Protocol.h` is compatibility-critical. Current protocol version is `4`.
 
-If changing packet contents:
+Status packets are 42 bytes and include:
 
-- Update both encoder and decoder paths.
-- Update `CONTROL_MESSAGE_SIZE`, `STATUS_MESSAGE_SIZE`, and `MAX_WIRE_PACKET_SIZE`.
-- Keep little-endian integer handling consistent.
-- Build both transmitter and receiver roles.
-- Prefer backward-compatible decoding or a protocol version bump when deployed devices may be mixed.
-- Update `README.md` packet tables in the same change.
+- flags and ACK sequence
+- raw/smoothed RSSI
+- battery total and midpoint millivolts
+- `motorPwm[5]`: FL, FR, RL, RR, STEER
+- `currentSense[10]`: FL_L, FL_R, FR_L, FR_R, RL_L, RL_R, RR_L, RR_R, STEER_L, STEER_R
 
-## Control/Safety Notes
+When changing protocol fields:
 
-Receiver button actions are edge-triggered. R2 toggles drive enable, Select toggles parking brake, Start toggles tank mode, and D-pad changes maximum speed. On link resync, button edges are reset to avoid replaying held buttons as new presses.
+- Update both encoder and decoder.
+- Update packet size constants and documented offsets.
+- Build both transmitter and receiver.
+- Update `README.md` packet tables.
+- Prefer a version bump unless backward-compatible decoding is deliberately implemented.
 
-The pedal input scales all motor drive. A zero pedal reading suppresses drive even when the remote commands speed. Steering is currently `analogWrite()` PWM on pin `3`, not Arduino `Servo` pulses.
+## Safety-Sensitive Behavior
 
-When testing motor or steering changes, keep the vehicle lifted or motor power disconnected until serial output and PWM behavior are verified.
+Preserve link-loss behavior unless a task explicitly changes failsafe design. Stale link or missing controller should neutralize controller state, reset button-edge state, disable drive, and command zero output.
+
+`DriveSystem` gates all five BTS7960 outputs. When disabled it coasts and records zero commands. When parking brake is enabled it brakes and records zero commands. Steering is also gated by drive enable and parking brake.
+
+Motor direction changes use a short break-before-make delay in `BTS7960`. Be careful editing `drive()`, `brake()`, `coast()`, or PCA9685 channel writes.
+
+## Coding Style
+
+- Arduino C++ with two-space indentation.
+- Prefer file-local `static` constants/functions for receiver pin maps and scaling constants.
+- Use shared layout/protocol constants instead of duplicated magic array sizes.
+- Keep abstractions thin. `Pca9685Pwm` is intentionally a small adapter around the Adafruit driver.
+- Add comments only for hardware assumptions, protocol scaling, or non-obvious timing/safety behavior.
+
+## High-Caution Changes
+
+Use extra care for:
+
+- `src/rx_main.cpp` pin/channel maps.
+- ADS1115 divider constants and gain assumptions.
+- `lib/Protocol/Protocol.h` offsets, sizes, and version.
+- `lib/BTS7960` direction/brake/coast behavior.
+- `lib/DriveSystem` enable, parking brake, and telemetry command recording.
+- LoRa modem config or timing constants.
+
+Do not move `archive/SoftwarePWM/` back into active `lib/` unless intentionally reviving that implementation. It was archived so PlatformIO will not use it for receiver motor control.
 
 ## Known Uncertainties
 
 - No wiring diagram or hardware revision file is present.
-- Receiver battery scaling assumes ADC full scale is `48000` mV, but the sensing circuit is not documented.
-- Transmitter battery telemetry is a TODO and returns `0`.
-- MCP23017 address is not explicit in code; `mcp.begin_I2C()` uses the library default.
+- Battery divider ratios are placeholders and must be calibrated.
+- Current sense telemetry is raw ADC counts; BTS7960 current-to-ADC scaling is not documented.
+- Feather 32u4 analog availability for `A6` and `A8` should be confirmed on the exact board/wiring.
+- Transmitter battery telemetry is a TODO and reports `0`.
 - PS2 button bit ordering is assumed by the enum in `src/rx_main.cpp`; confirm against PsxNewLib before changing button behavior.
-- Existing generated VS Code files reference a Windows user path and should not be treated as portable source of truth.

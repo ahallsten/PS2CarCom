@@ -4,13 +4,17 @@
 static const unsigned int kDirectionDeadTimeUs = 200;
 
 BTS7960::BTS7960(Adafruit_MCP23X17 *mcp,
-                 SoftwarePWMX *pwmx,
-                 PinDef RPWM, PinDef LPWM,
-                 PinDef L_EN, PinDef R_EN,
-                 PinDef L_IS, PinDef R_IS)
+                 Pca9685Pwm *pwm,
+                 uint8_t rPwmChannel,
+                 uint8_t lPwmChannel,
+                 PinDef L_EN,
+                 PinDef R_EN,
+                 PinDef L_IS,
+                 PinDef R_IS)
   : _mcp(mcp),
-    _pwmx(pwmx),
-    _RPWM(RPWM), _LPWM(LPWM),
+    _pwm(pwm),
+    _rPwmChannel(rPwmChannel),
+    _lPwmChannel(lPwmChannel),
     _L_EN(L_EN), _R_EN(R_EN),
     _L_IS(L_IS), _R_IS(R_IS) {
 }
@@ -25,21 +29,24 @@ void BTS7960::digitalWriteX(PinDef pin, uint8_t value) {
   else digitalWrite(pin.pin, value);
 }
 
+uint16_t BTS7960::analogReadX(PinDef pin) const {
+  if (pin.source != PinSource::MCU_PIN) return 0;
+  int raw = analogRead(pin.pin);
+  if (raw < 0) raw = 0;
+  if (raw > 1023) raw = 1023;
+  return static_cast<uint16_t>(raw);
+}
+
 void BTS7960::begin() {
-  pinModeX(_RPWM, OUTPUT);
-  pinModeX(_LPWM, OUTPUT);
   pinModeX(_L_EN, OUTPUT);
   pinModeX(_R_EN, OUTPUT);
   pinModeX(_L_IS, INPUT);
   pinModeX(_R_IS, INPUT);
-
-  _rPwmCh = _pwmx ? _pwmx->addChannel(_RPWM, 0) : -1;
-  _lPwmCh = _pwmx ? _pwmx->addChannel(_LPWM, 0) : -1;
   coast();
 }
 
 void BTS7960::drive(int16_t pwm) {
-  if (_rPwmCh < 0 || _lPwmCh < 0) return;
+  if (!_pwm) return;
   pwm = constrain(pwm, -255, 255);
   if (pwm == 0) {
     brake();
@@ -50,26 +57,26 @@ void BTS7960::drive(int16_t pwm) {
   uint8_t duty = static_cast<uint8_t>(abs(pwm));
 
   if (dir != _lastDir) {
-    _pwmx->forceLow(_rPwmCh);
-    _pwmx->forceLow(_lPwmCh);
+    _pwm->forceLow(_rPwmChannel);
+    _pwm->forceLow(_lPwmChannel);
     if (_lastDir != 0) {
       delayMicroseconds(kDirectionDeadTimeUs);
     }
   }
 
   if (dir > 0) {
-    _pwmx->setDuty(_rPwmCh, duty);
+    _pwm->setDuty(_rPwmChannel, duty);
   } else {
-    _pwmx->setDuty(_lPwmCh, duty);
+    _pwm->setDuty(_lPwmChannel, duty);
   }
 
   _lastDir = dir;
 }
 
 void BTS7960::brake() {
-  if (_rPwmCh < 0 || _lPwmCh < 0) return;
-  _pwmx->forceLow(_rPwmCh);
-  _pwmx->forceLow(_lPwmCh);
+  if (!_pwm) return;
+  _pwm->forceLow(_rPwmChannel);
+  _pwm->forceLow(_lPwmChannel);
   _lastDir = 0;
 }
 
@@ -81,19 +88,19 @@ void BTS7960::coast() {
 
 void BTS7960::cwBrake() {
   brake();
-  digitalWriteX(_R_EN, 1);
-  digitalWriteX(_L_EN, 0);
+  digitalWriteX(_R_EN, HIGH);
+  digitalWriteX(_L_EN, LOW);
 }
 
 void BTS7960::ccwBrake() {
   brake();
-  digitalWriteX(_R_EN, 0);
-  digitalWriteX(_L_EN, 1);
+  digitalWriteX(_R_EN, LOW);
+  digitalWriteX(_L_EN, HIGH);
 }
 
 void BTS7960::enable() {
-  digitalWriteX(_R_EN, 1);
-  digitalWriteX(_L_EN, 1);
+  digitalWriteX(_R_EN, HIGH);
+  digitalWriteX(_L_EN, HIGH);
 }
 
 void BTS7960::disable() {
@@ -105,6 +112,7 @@ void BTS7960::stop() {
   coast();
 }
 
+<<<<<<< Updated upstream
 void BTS7960::getPwmSnapshot(Bts7960PwmSnapshot &snapshot) const {
   snapshot = Bts7960PwmSnapshot();
   snapshot.direction = _lastDir;
@@ -112,4 +120,9 @@ void BTS7960::getPwmSnapshot(Bts7960PwmSnapshot &snapshot) const {
 
   _pwmx->getChannelSnapshot(_rPwmCh, snapshot.rpwm);
   _pwmx->getChannelSnapshot(_lPwmCh, snapshot.lpwm);
+=======
+void BTS7960::readCurrentSense(uint16_t &lisOut, uint16_t &risOut) const {
+  lisOut = analogReadX(_L_IS);
+  risOut = analogReadX(_R_IS);
+>>>>>>> Stashed changes
 }

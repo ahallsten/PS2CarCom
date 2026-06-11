@@ -5,15 +5,17 @@
 #include <Arduino.h>
 #include <RH_RF95.h>
 #include <Wire.h>
+#include <Adafruit_ADS1X15.h>
 #include <Adafruit_MCP23X17.h>
+#include <Adafruit_PWMServoDriver.h>
 
 #include "AxisMap.h"
 #include "ControllerState.h"
 #include "DriveSystem.h"
 #include "FirmwareInfo.h"
+#include "Pca9685Pwm.h"
 #include "Protocol.h"
 #include "RadioConfig.h"
-#include "SoftwarePWMX.h"
 
 #ifndef RX_PRINT_DECODED_CONTROL
 #define RX_PRINT_DECODED_CONTROL 1
@@ -31,53 +33,66 @@
 #define GAS_PEDAL_PIN A7 // adjust to your available analog pin
 #endif
 
-#ifndef RX_BATTERY_PIN
-#define RX_BATTERY_PIN A6 // adjust to your battery sense pin
-#endif
+static const float PCA9685_PWM_FREQ_HZ = 50.0f;
 
-// Motor FL (Front Left) Pin Assignments
-static const uint8_t MOTOR_FL_RPWM = 0; // mcp port A0 or pin 23
-static const uint8_t MOTOR_FL_LPWM = 1; // mcp port A1 or pin 24
+static const uint8_t ADS_BATTERY_TOTAL_CHANNEL = 0;
+static const uint8_t ADS_BATTERY_MIDPOINT_CHANNEL = 1;
+
+// ADS1115 GAIN_ONE is +/-4.096 V, or 125 uV/count. Divider ratios are
+// placeholders until the real resistor values are measured and calibrated.
+static const unsigned long ADS1115_GAIN_ONE_UV_PER_COUNT = 125UL;
+static const unsigned long BATTERY_TOTAL_DIVIDER_NUM = 11UL;
+static const unsigned long BATTERY_TOTAL_DIVIDER_DEN = 1UL;
+static const unsigned long BATTERY_MIDPOINT_DIVIDER_NUM = 11UL;
+static const unsigned long BATTERY_MIDPOINT_DIVIDER_DEN = 1UL;
+
+// PCA9685 channel assignments. Each BTS7960 uses one channel per direction.
+static const uint8_t MOTOR_FL_RPWM = 0;
+static const uint8_t MOTOR_FL_LPWM = 1;
 static const uint8_t MOTOR_FL_REN = 10; // mcp port B2 or pin 1
 static const uint8_t MOTOR_FL_LEN = 11; // mcp port B3 or pin 2
 static const uint8_t MOTOR_FL_RIS = A0;
 static const uint8_t MOTOR_FL_LIS = A1;
-// Motor FR (Front Right) Pin Assignments
-static const uint8_t MOTOR_FR_RPWM = 6; // mcp port A6 pin 22 old 6
-static const uint8_t MOTOR_FR_LPWM = 7; // mcp port A7 pin 21 old 7
+
+static const uint8_t MOTOR_FR_RPWM = 2;
+static const uint8_t MOTOR_FR_LPWM = 3;
 static const uint8_t MOTOR_FR_REN = 12; // mcp port B4 or pin 3
 static const uint8_t MOTOR_FR_LEN = 13; // mcp port B5 or pin 4
 static const uint8_t MOTOR_FR_RIS = A2;
 static const uint8_t MOTOR_FR_LIS = A3;
-// Motor RL (Rear Left) Pin Assignments
-static const uint8_t MOTOR_RL_RPWM = 2; // mcp port A2 or pin 28
-static const uint8_t MOTOR_RL_LPWM = 3; // mcp port A3 or pin 27
+
+static const uint8_t MOTOR_RL_RPWM = 4;
+static const uint8_t MOTOR_RL_LPWM = 5;
 static const uint8_t MOTOR_RL_REN = 8; // mcp port B0 or pin 5
 static const uint8_t MOTOR_RL_LEN = 9; // mcp port B1 or pin 6
 static const uint8_t MOTOR_RL_RIS = A4;
 static const uint8_t MOTOR_RL_LIS = A5;
-// Motor RR (Rear Right) Pin Assignments
-static const uint8_t MOTOR_RR_RPWM = 4; // mcp port A4 or pin 26
-static const uint8_t MOTOR_RR_LPWM = 5; // mcp port A5 or pin 25
+
+static const uint8_t MOTOR_RR_RPWM = 6;
+static const uint8_t MOTOR_RR_LPWM = 7;
 static const uint8_t MOTOR_RR_REN = 14; // mcp port B6 or pin 7
 static const uint8_t MOTOR_RR_LEN = 15; // mcp port B7 or pin 8
 static const uint8_t MOTOR_RR_RIS = 6;
 static const uint8_t MOTOR_RR_LIS = 9;
-// Other Pin Assignments
-// NOTE: must NOT be pin 3. On the Feather 32u4, pin 3 (PD0) is the I2C SCL line
-// used by the MCP23017. Driving analogWrite() on pin 3 hijacks SCL and corrupts
-// every MCP transaction, which makes the motor pins receive garbled/conflicting
-// commands. Pin 5 (Timer3 OC3A) is a free PWM-capable pin. The steering signal
-// wire must be physically moved to pin 5.
-static const uint8_t STEER_PWM = 5;
+
+static const uint8_t STEER_RPWM = 8;
+static const uint8_t STEER_LPWM = 9;
+static const uint8_t STEER_REN = 0; // freed MCP pins formerly used for software PWM
+static const uint8_t STEER_LEN = 1;
+static const uint8_t STEER_RIS = A8;
+static const uint8_t STEER_LIS = A6;
+
 static const uint8_t RX_PACKET_LED_PIN = 13;
 
 static Adafruit_MCP23X17 mcp;
-static SoftwarePWMX pwmx(8, &mcp);
+static Adafruit_PWMServoDriver pca9685;
+static Adafruit_ADS1115 ads1115;
+static Pca9685Pwm pwm(pca9685);
+static bool adsReady = false;
 
 static const MotorPins kFlPins = {
-  { MOTOR_FL_RPWM, PinSource::MCP_PIN },
-  { MOTOR_FL_LPWM, PinSource::MCP_PIN },
+  MOTOR_FL_RPWM,
+  MOTOR_FL_LPWM,
   { MOTOR_FL_LEN, PinSource::MCP_PIN },
   { MOTOR_FL_REN, PinSource::MCP_PIN },
   { MOTOR_FL_LIS, PinSource::MCU_PIN },
@@ -85,8 +100,8 @@ static const MotorPins kFlPins = {
 };
 
 static const MotorPins kFrPins = {
-  { MOTOR_FR_RPWM, PinSource::MCP_PIN },
-  { MOTOR_FR_LPWM, PinSource::MCP_PIN },
+  MOTOR_FR_RPWM,
+  MOTOR_FR_LPWM,
   { MOTOR_FR_LEN, PinSource::MCP_PIN },
   { MOTOR_FR_REN, PinSource::MCP_PIN },
   { MOTOR_FR_LIS, PinSource::MCU_PIN },
@@ -94,8 +109,8 @@ static const MotorPins kFrPins = {
 };
 
 static const MotorPins kRlPins = {
-  { MOTOR_RL_RPWM, PinSource::MCP_PIN },
-  { MOTOR_RL_LPWM, PinSource::MCP_PIN },
+  MOTOR_RL_RPWM,
+  MOTOR_RL_LPWM,
   { MOTOR_RL_LEN, PinSource::MCP_PIN },
   { MOTOR_RL_REN, PinSource::MCP_PIN },
   { MOTOR_RL_LIS, PinSource::MCU_PIN },
@@ -103,15 +118,24 @@ static const MotorPins kRlPins = {
 };
 
 static const MotorPins kRrPins = {
-  { MOTOR_RR_RPWM, PinSource::MCP_PIN },
-  { MOTOR_RR_LPWM, PinSource::MCP_PIN },
+  MOTOR_RR_RPWM,
+  MOTOR_RR_LPWM,
   { MOTOR_RR_LEN, PinSource::MCP_PIN },
   { MOTOR_RR_REN, PinSource::MCP_PIN },
   { MOTOR_RR_LIS, PinSource::MCU_PIN },
   { MOTOR_RR_RIS, PinSource::MCU_PIN }
 };
 
-static DriveSystem drive(mcp, pwmx, kFlPins, kFrPins, kRlPins, kRrPins);
+static const MotorPins kSteerPins = {
+  STEER_RPWM,
+  STEER_LPWM,
+  { STEER_LEN, PinSource::MCP_PIN },
+  { STEER_REN, PinSource::MCP_PIN },
+  { STEER_LIS, PinSource::MCU_PIN },
+  { STEER_RIS, PinSource::MCU_PIN }
+};
+
+static DriveSystem drive(mcp, pwm, kFlPins, kFrPins, kRlPins, kRrPins, kSteerPins);
 static RH_RF95 rfm(RFM95_CS, RFM95_INT);
 
 static ControllerState currentState = kNeutralControllerState;
@@ -173,7 +197,8 @@ static unsigned long lastStatusSendMs = 0;
 static uint8_t lastControlSeq = 0;
 static int16_t rssiRawRx = 0;
 static int16_t rssiSmoothRx = 0;
-static uint16_t receiverBatteryMilliVolts = 0;
+static uint16_t receiverBatteryTotalMilliVolts = 0;
+static uint16_t receiverBatteryMidpointMilliVolts = 0;
 static bool remoteControllerPresent = false;
 static bool needButtonResync = true;
 static bool firmwareBannerPrinted = false;
@@ -299,11 +324,32 @@ static uint8_t getGasPedalDriveValue() {
   return static_cast<uint8_t>((raw * 255L) / 1023L);
 }
 
-static uint16_t readReceiverBatteryMilliVolts() {
-  int raw = analogRead(RX_BATTERY_PIN);
-  if (raw < 0) raw = 0;
-  if (raw > 1023) raw = 1023;
-  return static_cast<uint16_t>((static_cast<unsigned long>(raw) * 48000UL) / 1023UL);
+static uint16_t clampToU16(unsigned long value) {
+  return static_cast<uint16_t>(value > 65535UL ? 65535UL : value);
+}
+
+static uint16_t scaleAdsReadingMilliVolts(int16_t raw,
+                                          unsigned long dividerNum,
+                                          unsigned long dividerDen) {
+  if (raw < 0 || dividerDen == 0) return 0;
+  unsigned long pinUv = static_cast<unsigned long>(raw) * ADS1115_GAIN_ONE_UV_PER_COUNT;
+  unsigned long pinMv = pinUv / 1000UL;
+  return clampToU16((pinMv * dividerNum) / dividerDen);
+}
+
+static void readReceiverBatteryTelemetry() {
+  if (!adsReady) {
+    receiverBatteryTotalMilliVolts = 0;
+    receiverBatteryMidpointMilliVolts = 0;
+    return;
+  }
+
+  int16_t totalRaw = ads1115.readADC_SingleEnded(ADS_BATTERY_TOTAL_CHANNEL);
+  int16_t midpointRaw = ads1115.readADC_SingleEnded(ADS_BATTERY_MIDPOINT_CHANNEL);
+  receiverBatteryTotalMilliVolts =
+    scaleAdsReadingMilliVolts(totalRaw, BATTERY_TOTAL_DIVIDER_NUM, BATTERY_TOTAL_DIVIDER_DEN);
+  receiverBatteryMidpointMilliVolts =
+    scaleAdsReadingMilliVolts(midpointRaw, BATTERY_MIDPOINT_DIVIDER_NUM, BATTERY_MIDPOINT_DIVIDER_DEN);
 }
 
 static bool hasFreshControlLink() {
@@ -315,14 +361,21 @@ static void sendStatusHeartbeat() {
   if (now - lastStatusSendMs < STATUS_PERIOD_MS) return;
   lastStatusSendMs = now;
 
+  readReceiverBatteryTelemetry();
+
   StatusMessage msg;
   msg.linkOk = hasFreshControlLink();
   msg.controllerPresent = remoteControllerPresent;
+  msg.parkingBrake = parkingBrake;
+  msg.driveEnabled = driveEnabled;
+  msg.tankMode = tankMode;
   msg.rssiRaw = rssiRawRx;
   msg.rssiSmooth = rssiSmoothRx;
-  msg.batteryMv = receiverBatteryMilliVolts;
+  msg.batteryTotalMv = receiverBatteryTotalMilliVolts;
+  msg.batteryMidpointMv = receiverBatteryMidpointMilliVolts;
   msg.ackSeq = lastControlSeq;
-  drive.getMotorPercents(msg.motorPct);
+  drive.getMotorCommands(msg.motorPwm);
+  drive.readCurrentSense(msg.currentSense);
 
   uint8_t buffer[STATUS_MESSAGE_SIZE] = {0};
   encodeStatusMessage(msg, buffer);
@@ -577,6 +630,7 @@ static void controlsDecision() {
 
   pedalDriveValue = getGasPedalDriveValue();
 
+<<<<<<< Updated upstream
   leftDriveCommand = (clampSpeed(leftYPWM) * pedalDriveValue) / 255;
   rightDriveCommand = (clampSpeed(tankMode ? rightYPWM : leftYPWM) * pedalDriveValue) / 255;
 
@@ -586,25 +640,44 @@ static void controlsDecision() {
 
   uint8_t steerPwm = static_cast<uint8_t>(constrain(rightXPWM + 127, 0, 255));
   analogWrite(STEER_PWM, steerPwm);
+=======
+  int16_t leftDrive = (clampSpeed(leftYPWM) * pedal) / 255;
+  int16_t rightDrive = (clampSpeed(tankMode ? rightYPWM : leftYPWM) * pedal) / 255;
+  int16_t steerDrive = rightXPWM;
+
+  drive.setEnabled(driveEnabled);
+  drive.setParkingBrake(parkingBrake);
+  drive.applyDrive(leftDrive, rightDrive, leftDrive, rightDrive, steerDrive);
+
+  maybePrintDriveDebug();
+>>>>>>> Stashed changes
 }
 
 void setup() {
   Serial.begin(115200);
   maybePrintFirmwareBanner();
 
-  pinMode(STEER_PWM, OUTPUT);
   pinMode(RX_PACKET_LED_PIN, OUTPUT);
   digitalWrite(RX_PACKET_LED_PIN, LOW);
   pinMode(GAS_PEDAL_PIN, INPUT);
-  pinMode(RX_BATTERY_PIN, INPUT);
 
+  Wire.begin();
+  Wire.setClock(400000);
   if (!mcp.begin_I2C()) {
     Serial.println("mcp begin error.");
     while (1) {
       Serial.println("mcp error");
     }
   }
-  Wire.setClock(400000);
+
+  pwm.begin(PCA9685_PWM_FREQ_HZ);
+
+  adsReady = ads1115.begin();
+  if (adsReady) {
+    ads1115.setGain(GAIN_ONE);
+  } else {
+    Serial.println(F("ADS1115 initialization failed; battery telemetry will report 0 mV"));
+  }
 
   drive.begin();
   drive.setEnabled(false);
@@ -622,8 +695,8 @@ void setup() {
 
   rfm.setFrequency(RF95_FREQ);
   // Fast+short-range LoRa: ~11ms time-on-air vs ~46ms at the default
-  // Bw125Cr45Sf128. Cuts the per-send blocking that was stalling the loop and
-  // software PWM. Must match the transmitter's modem config.
+  // Bw125Cr45Sf128. Cuts the per-send blocking that can stall receiver control
+  // and telemetry work. Must match the transmitter's modem config.
   rfm.setModemConfig(RH_RF95::Bw500Cr45Sf128);
   Serial.println("RFM95 initialized: RECEIVER");
 }
@@ -632,11 +705,13 @@ void loop() {
   maybePrintFirmwareBanner();
   updateRxPacketLed();
   handleIncomingPackets();
-  receiverBatteryMilliVolts = readReceiverBatteryMilliVolts();
   controlsDecision();
   sendStatusHeartbeat();
+<<<<<<< Updated upstream
   pwmx.update();
   maybePrintDriveDebug();
+=======
+>>>>>>> Stashed changes
   updateRxPacketLed();
 }
 

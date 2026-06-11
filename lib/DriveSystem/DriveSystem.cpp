@@ -1,15 +1,18 @@
 #include "DriveSystem.h"
 
 DriveSystem::DriveSystem(Adafruit_MCP23X17 &mcp,
-                         SoftwarePWMX &pwmx,
+                         Pca9685Pwm &pwm,
                          const MotorPins &fl,
                          const MotorPins &fr,
                          const MotorPins &rl,
-                         const MotorPins &rr)
-  : _fl(&mcp, &pwmx, fl.rpwm, fl.lpwm, fl.len, fl.ren, fl.lis, fl.ris),
-    _fr(&mcp, &pwmx, fr.rpwm, fr.lpwm, fr.len, fr.ren, fr.lis, fr.ris),
-    _rl(&mcp, &pwmx, rl.rpwm, rl.lpwm, rl.len, rl.ren, rl.lis, rl.ris),
-    _rr(&mcp, &pwmx, rr.rpwm, rr.lpwm, rr.len, rr.ren, rr.lis, rr.ris) {
+                         const MotorPins &rr,
+                         const MotorPins &steer)
+  : _fl(&mcp, &pwm, fl.rpwmChannel, fl.lpwmChannel, fl.len, fl.ren, fl.lis, fl.ris),
+    _fr(&mcp, &pwm, fr.rpwmChannel, fr.lpwmChannel, fr.len, fr.ren, fr.lis, fr.ris),
+    _rl(&mcp, &pwm, rl.rpwmChannel, rl.lpwmChannel, rl.len, rl.ren, rl.lis, rl.ris),
+    _rr(&mcp, &pwm, rr.rpwmChannel, rr.lpwmChannel, rr.len, rr.ren, rr.lis, rr.ris),
+    _steer(&mcp, &pwm, steer.rpwmChannel, steer.lpwmChannel,
+           steer.len, steer.ren, steer.lis, steer.ris) {
 }
 
 void DriveSystem::begin() {
@@ -17,6 +20,7 @@ void DriveSystem::begin() {
   _fr.begin();
   _rl.begin();
   _rr.begin();
+  _steer.begin();
 }
 
 void DriveSystem::setEnabled(bool enabled) {
@@ -26,7 +30,7 @@ void DriveSystem::setEnabled(bool enabled) {
     enableAll();
   } else {
     coastAll();
-    recordCmds(0, 0, 0, 0);
+    recordCmds(0, 0, 0, 0, 0);
   }
 }
 
@@ -35,46 +39,42 @@ void DriveSystem::setParkingBrake(bool enabled) {
   _parkingBrake = enabled;
   if (_parkingBrake) {
     brakeAll();
-    recordCmds(0, 0, 0, 0);
+    recordCmds(0, 0, 0, 0, 0);
   }
 }
 
-void DriveSystem::applyDrive(int16_t fl, int16_t fr, int16_t rl, int16_t rr) {
-  if (!_enabled) {
-    recordCmds(0, 0, 0, 0);
+void DriveSystem::applyDrive(int16_t fl, int16_t fr, int16_t rl, int16_t rr, int16_t steer) {
+  if (!_enabled || _parkingBrake) {
+    recordCmds(0, 0, 0, 0, 0);
     return;
   }
 
-  if (_parkingBrake) {
-    recordCmds(0, 0, 0, 0);
-    return;
-  }
-
-  recordCmds(fl, fr, rl, rr);
+  recordCmds(fl, fr, rl, rr, steer);
   _fl.drive(fl);
   _fr.drive(fr);
   _rl.drive(rl);
   _rr.drive(rr);
+  _steer.drive(steer);
 }
 
 void DriveSystem::applyDriveAll(int16_t pwm) {
-  applyDrive(pwm, pwm, pwm, pwm);
+  applyDrive(pwm, pwm, pwm, pwm, pwm);
 }
 
 void DriveSystem::brake() {
   brakeAll();
-  recordCmds(0, 0, 0, 0);
+  recordCmds(0, 0, 0, 0, 0);
 }
 
 void DriveSystem::coast() {
   coastAll();
-  recordCmds(0, 0, 0, 0);
+  recordCmds(0, 0, 0, 0, 0);
 }
 
 void DriveSystem::stop() {
   brakeAll();
   coastAll();
-  recordCmds(0, 0, 0, 0);
+  recordCmds(0, 0, 0, 0, 0);
 }
 
 void DriveSystem::enableAll() {
@@ -82,6 +82,7 @@ void DriveSystem::enableAll() {
   _fr.enable();
   _rl.enable();
   _rr.enable();
+  _steer.enable();
 }
 
 void DriveSystem::coastAll() {
@@ -89,6 +90,7 @@ void DriveSystem::coastAll() {
   _fr.coast();
   _rl.coast();
   _rr.coast();
+  _steer.coast();
 }
 
 void DriveSystem::brakeAll() {
@@ -96,23 +98,24 @@ void DriveSystem::brakeAll() {
   _fr.brake();
   _rl.brake();
   _rr.brake();
+  _steer.brake();
 }
 
-void DriveSystem::recordCmds(int16_t fl, int16_t fr, int16_t rl, int16_t rr) {
-  _lastCmd[0] = fl;
-  _lastCmd[1] = fr;
-  _lastCmd[2] = rl;
-  _lastCmd[3] = rr;
+void DriveSystem::recordCmds(int16_t fl, int16_t fr, int16_t rl, int16_t rr, int16_t steer) {
+  _lastCmd[MOTOR_INDEX_FL] = fl;
+  _lastCmd[MOTOR_INDEX_FR] = fr;
+  _lastCmd[MOTOR_INDEX_RL] = rl;
+  _lastCmd[MOTOR_INDEX_RR] = rr;
+  _lastCmd[MOTOR_INDEX_STEER] = steer;
 }
 
-void DriveSystem::getMotorPercents(uint8_t out[4]) const {
-  for (uint8_t i = 0; i < 4; ++i) {
-    uint16_t mag = abs(_lastCmd[i]);
-    if (mag > 255) mag = 255;
-    out[i] = static_cast<uint8_t>((mag * 100U) / 255U);
+void DriveSystem::getMotorCommands(int16_t out[VEHICLE_MOTOR_COUNT]) const {
+  for (uint8_t i = 0; i < VEHICLE_MOTOR_COUNT; ++i) {
+    out[i] = _lastCmd[i];
   }
 }
 
+<<<<<<< Updated upstream
 void DriveSystem::getLastCommands(int16_t out[4]) const {
   for (uint8_t i = 0; i < 4; ++i) {
     out[i] = _lastCmd[i];
@@ -124,4 +127,12 @@ void DriveSystem::getPwmSnapshots(Bts7960PwmSnapshot out[4]) const {
   _fr.getPwmSnapshot(out[1]);
   _rl.getPwmSnapshot(out[2]);
   _rr.getPwmSnapshot(out[3]);
+=======
+void DriveSystem::readCurrentSense(uint16_t out[VEHICLE_CURRENT_SENSE_COUNT]) const {
+  _fl.readCurrentSense(out[CURRENT_INDEX_FL_L], out[CURRENT_INDEX_FL_R]);
+  _fr.readCurrentSense(out[CURRENT_INDEX_FR_L], out[CURRENT_INDEX_FR_R]);
+  _rl.readCurrentSense(out[CURRENT_INDEX_RL_L], out[CURRENT_INDEX_RL_R]);
+  _rr.readCurrentSense(out[CURRENT_INDEX_RR_L], out[CURRENT_INDEX_RR_R]);
+  _steer.readCurrentSense(out[CURRENT_INDEX_STEER_L], out[CURRENT_INDEX_STEER_R]);
+>>>>>>> Stashed changes
 }

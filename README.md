@@ -1,15 +1,20 @@
 # PS2CarCom
 
-PS2CarCom is a PlatformIO/Arduino firmware project for a two-microcontroller RC-style vehicle control system. One Adafruit Feather 32u4/RFM95 board acts as the transmitter and reads a PlayStation 2 controller. A second Feather 32u4/RFM95 board acts as the receiver on the vehicle, receives LoRa packets, and drives steering plus four BTS7960 motor drivers.
+PS2CarCom is a PlatformIO/Arduino firmware project for a two-microcontroller RC-style vehicle control system. One Adafruit Feather 32u4/RFM95 board is the transmitter and reads a PlayStation 2 controller. A second Feather 32u4/RFM95 board is the vehicle receiver and drives BTS7960 motor controllers over LoRa commands.
 
-The project builds the transmitter and receiver as separate PlatformIO environments. Use `-e transmitter` for the remote and `-e receiver` for the vehicle-side controller.
+The project builds the two roles as separate PlatformIO environments:
 
-## Current Architecture
+```sh
+pio run -e transmitter
+pio run -e receiver
+```
+
+## Architecture
 
 ```text
 PS2 controller
     |
-    | bit-banged PsxNewLib interface
+    | PsxNewLib bit-banged controller bus
     v
 Transmitter Feather 32u4 + RFM95
     |
@@ -17,110 +22,74 @@ Transmitter Feather 32u4 + RFM95
     v
 Receiver Feather 32u4 + RFM95
     |
-    | MCP23017 GPIO expander + software PWM + direct MCU pins
+    | I2C: MCP23017 enables, PCA9685 PWM, ADS1115 battery ADC
     v
-BTS7960 motor drivers, steering PWM, pedal input, battery sense
+Five BTS7960 drivers: FL, FR, RL, RR, steering
 ```
 
-The active source files are:
+The receiver uses the PCA9685 for all BTS7960 RPWM/LPWM inputs at 50 Hz. The MCP23017 is still used for BTS7960 enable pins. Steering is treated as another signed BTS7960 motor channel, not as a hobby servo or `analogWrite()` output.
+
+## Repository Layout
 
 | Path | Purpose |
 | --- | --- |
-| `include/RoleConfig.h` | Compile-time guard that requires exactly one role macro. Roles are selected by PlatformIO environments. |
-| `include/RadioConfig.h` | Shared RFM95 chip-select, reset, interrupt pins, and RF frequency. |
-| `src/main.cpp` | Compile-time guard that rejects invalid role selection. |
-| `src/tx_main.cpp` | Transmitter firmware, compiled only when `TRANSMITTER` is defined. |
-| `src/rx_main.cpp` | Receiver firmware, compiled only when `RECEIVER` is defined. |
-| `lib/Protocol/Protocol.h` | Shared packet format and encode/decode helpers. |
-| `lib/Controller/` | Shared controller state, button edge tracking, and serial debug printing. |
-| `lib/AxisMap/` | Analog stick dead-zone and signed PWM mapping helpers. |
-| `lib/DriveSystem/` | Four-motor drive abstraction around BTS7960 drivers. |
-| `lib/BTS7960/` | Low-level BTS7960 motor driver wrapper. |
-| `lib/SoftwarePWM/` | Software PWM channels for MCU or MCP23017 pins. |
+| `platformio.ini` | PlatformIO environments and dependencies. |
+| `include/RoleConfig.h` | Compile-time role guard. Do not edit this to switch roles. |
+| `include/RadioConfig.h` | Shared RFM95 pins and frequency. |
+| `src/tx_main.cpp` | Transmitter firmware. |
+| `src/rx_main.cpp` | Receiver firmware, hardware map, control decisions, telemetry sampling. |
+| `lib/Protocol/Protocol.h` | Shared control/status packet format. |
+| `lib/VehicleLayout/VehicleLayout.h` | Shared motor/current-sense ordering constants. |
+| `lib/BTS7960/` | Low-level BTS7960 wrapper. |
+| `lib/DriveSystem/` | Five-driver vehicle output coordinator. |
+| `lib/Pca9685Pwm/` | Thin PCA9685 PWM adapter. |
+| `lib/AxisMap/` | Stick dead-zone and PWM mapping helpers. |
+| `lib/Controller/` | Controller state, button edges, and serial debug helpers. |
+| `archive/SoftwarePWM/` | Previous software PWM implementation, preserved but inactive. |
 
-`lib/Joystick`, `lib/MCPPWM`, `lib/Utils`, and `sketchPad.txt` are present but are not referenced by the active transmitter or receiver firmware on this branch.
+## Toolchain And Dependencies
 
-## Toolchain
+The active target is `atmelavr`, board `feather32u4`, framework `arduino`.
 
-The project uses PlatformIO:
-
-```ini
-[env]
-platform = atmelavr
-board = feather32u4
-framework = arduino
-monitor_speed = 115200
-
-[env:transmitter]
-build_flags = -DTRANSMITTER
-
-[env:receiver]
-build_flags = -DRECEIVER
-```
-
-Declared library dependencies in `platformio.ini` are:
+Declared library dependencies:
 
 - Adafruit SleepyDog Library
 - RadioHead
 - PsxNewLib
 - LibPrintf
 - Adafruit MCP23017 Arduino Library
+- Adafruit PWM Servo Driver Library
+- Adafruit ADS1X15
 
-Active code directly uses RadioHead, PsxNewLib, DigitalIO, SPI, Wire, and the Adafruit MCP23X17 API. Some declared dependencies may be historical or indirectly used.
-
-## Build, Upload, And Monitor
-
-Install PlatformIO through the VS Code extension or the PlatformIO CLI. Select the firmware role with the PlatformIO environment name.
-
-Build the transmitter:
+Build, upload, and monitor:
 
 ```sh
 pio run -e transmitter
-```
-
-Build the receiver:
-
-```sh
 pio run -e receiver
-```
-
-Upload the transmitter:
-
-```sh
 pio run -e transmitter -t upload
-```
-
-Upload the receiver:
-
-```sh
 pio run -e receiver -t upload
-```
-
-Open the serial monitor at the configured speed:
-
-```sh
 pio device monitor -e transmitter -b 115200
 pio device monitor -e receiver -b 115200
 ```
 
-`include/RoleConfig.h` should not be edited to choose a role. It only checks that exactly one role macro was provided by the selected PlatformIO environment.
+If multiple boards are attached, choose the upload port explicitly in PlatformIO or add a temporary `upload_port` locally.
 
 ## Radio Configuration
 
-`include/RadioConfig.h` defines the shared RFM95 configuration:
+`include/RadioConfig.h` currently defines:
 
-| Setting | Value in code |
+| Setting | Value |
 | --- | --- |
 | `RFM95_CS` | `8` |
 | `RFM95_RST` | `4` |
 | `RFM95_INT` | `7` |
 | `RF95_FREQ` | `915.0f` |
 
-Both boards must use matching radio frequency and packet protocol. If you change the region, hardware, or radio pins, update this file and verify that the selected frequency is legal for your location and radio module.
+Both firmwares use `RH_RF95::Bw500Cr45Sf128`. The comment in code estimates about 11 ms on-air time per packet with this modem config. Keep the transmitter and receiver radio settings matched.
 
 ## Transmitter Firmware
 
-`src/tx_main.cpp` reads a PS2 controller through `PsxControllerBitBang` using these pins:
+`src/tx_main.cpp` reads the PS2 controller through `PsxControllerBitBang`:
 
 | PS2 signal | Pin |
 | --- | --- |
@@ -132,90 +101,120 @@ Both boards must use matching radio frequency and packet protocol. If you change
 The transmitter:
 
 1. Initializes the RFM95 radio.
-2. Searches for a PS2 controller.
-3. Enters PS2 config mode and enables analog sticks/buttons when possible.
-4. Reads the controller button word and left/right analog sticks.
-5. Sends a control packet when the controller state changes or at least every 50 ms.
-6. Receives receiver status packets and tracks receiver link health, RSSI, receiver battery millivolts, and motor percentages.
-7. Sends its own status heartbeat every 100 ms.
+2. Finds and configures the PS2 controller.
+3. Reads buttons and analog sticks.
+4. Sends control packets immediately when state changes or at least every 50 ms.
+5. Receives receiver telemetry and prints ACK/status lines.
+6. Sends transmitter status heartbeats every 100 ms.
 
-`readTransmitterBatteryMilliVolts()` is currently a TODO and returns `0`, so transmitter battery telemetry is not implemented yet.
+Transmitter battery measurement is still a TODO and currently reports `0` mV.
 
 ## Receiver Firmware
 
-`src/rx_main.cpp` receives control packets and applies vehicle outputs. It uses:
+The receiver:
 
-- `Adafruit_MCP23X17 mcp` with `mcp.begin_I2C()` and the library default I2C address.
-- `SoftwarePWMX pwmx(8, &mcp)` for eight software PWM channels, two per motor driver.
-- Four `BTS7960` objects wrapped by `DriveSystem`.
-- `analogRead(GAS_PEDAL_PIN)` for the pedal input.
-- `analogRead(RX_BATTERY_PIN)` for receiver battery telemetry.
-- `analogWrite(STEER_PWM, value)` for steering output.
+1. Receives control packets from the transmitter.
+2. Applies link-loss and controller-present failsafes.
+3. Converts stick values into signed drive and steering commands.
+4. Scales drive motor output by the gas pedal on native analog pin `A7`.
+5. Sends five BTS7960 signed PWM commands through the PCA9685.
+6. Samples current sense on native analog inputs.
+7. Samples pack total and midpoint voltage through ADS1115 channels.
+8. Sends status telemetry every 250 ms.
 
-Important receiver pins and defaults:
+### Receiver Hardware Map
 
-| Function | Pin/source in code |
+PCA9685 PWM channel mapping:
+
+| Output | RPWM | LPWM |
+| --- | --- | --- |
+| Front left | PCA `0` | PCA `1` |
+| Front right | PCA `2` | PCA `3` |
+| Rear left | PCA `4` | PCA `5` |
+| Rear right | PCA `6` | PCA `7` |
+| Steering | PCA `8` | PCA `9` |
+
+MCP23017 enable mapping:
+
+| Output | REN | LEN |
+| --- | --- | --- |
+| Front left | MCP `10` | MCP `11` |
+| Front right | MCP `12` | MCP `13` |
+| Rear left | MCP `8` | MCP `9` |
+| Rear right | MCP `14` | MCP `15` |
+| Steering | MCP `0` | MCP `1` |
+
+Current-sense mapping, reported as raw native ADC counts:
+
+| Output | L_IS | R_IS |
+| --- | --- | --- |
+| Front left | `A1` | `A0` |
+| Front right | `A3` | `A2` |
+| Rear left | `A5` | `A4` |
+| Rear right | `9` | `6` |
+| Steering | `A6` | `A8` |
+
+Other receiver inputs:
+
+| Function | Pin/channel |
 | --- | --- |
-| Gas pedal | `A7` unless `GAS_PEDAL_PIN` is defined before this file |
-| Receiver battery sense | `A6` unless `RX_BATTERY_PIN` is defined before this file |
-| Steering PWM | MCU pin `3` |
+| Gas pedal | `A7` |
+| Battery total voltage | ADS1115 channel `0` |
+| Battery midpoint voltage | ADS1115 channel `1` |
+| RX packet LED | MCU pin `13` |
 
-Motor pin definitions as currently wired in code:
+The code assumes the Feather 32u4 board variant exposes `A6` and `A8`. Confirm this against the exact Feather and wiring before depending on steering current telemetry.
 
-| Motor | RPWM | LPWM | REN | LEN | RIS | LIS |
-| --- | --- | --- | --- | --- | --- | --- |
-| Front left | MCP `12` | MCP `13` | MCP `0` | MCP `1` | MCU `A0` | MCU `A1` |
-| Front right | MCP `11` | MCP `10` | MCP `2` | MCP `3` | MCU `A2` | MCU `A3` |
-| Rear left | MCP `7` | MCP `6` | MCP `4` | MCP `5` | MCU `A4` | MCU `A5` |
-| Rear right | MCP `5` | MCP `4` | MCP `6` | MCP `7` | MCU `6` | MCU `9` |
+### Battery Scaling
 
-The code treats MCP values as `Adafruit_MCP23X17` pin indexes. Confirm the physical package pin mapping against your MCP23017 board before wiring.
+ADS1115 battery scaling is integer fixed-point. The code configures `GAIN_ONE`, treated as 125 uV/count, and applies divider ratios:
+
+```cpp
+BATTERY_TOTAL_DIVIDER_NUM / BATTERY_TOTAL_DIVIDER_DEN
+BATTERY_MIDPOINT_DIVIDER_NUM / BATTERY_MIDPOINT_DIVIDER_DEN
+```
+
+Both ratios currently default to `11:1` placeholders. Replace these constants in `src/rx_main.cpp` with the measured resistor divider ratios before relying on battery voltage telemetry. Telemetry reports total and midpoint millivolts; individual batteries can be derived as:
+
+```text
+battery_1_mv = midpoint_mv
+battery_2_mv = total_mv - midpoint_mv
+```
 
 ## Controls
 
-The receiver maps the PS2 button word with this enum:
+Receiver button actions are edge-triggered:
 
-| Bit | Button | Receiver action on rising edge |
+| Bit | Button | Action |
 | --- | --- | --- |
-| 0 | Select | Toggle parking brake |
-| 1 | L3 | No active action |
-| 2 | R3 | No active action |
-| 3 | Start | Toggle tank mode |
-| 4 | Up | Increase maximum speed by 25, capped at 255 |
-| 5 | Right | Set maximum speed to 255 |
-| 6 | Down | Decrease maximum speed by 25, floored at 25 |
-| 7 | Left | Set maximum speed to 25 |
-| 8 | L2 | No active action |
-| 9 | R2 | Toggle drive enabled |
-| 10 | L1 | No active action |
-| 11 | R1 | No active action |
-| 12 | Triangle | No active action |
-| 13 | Circle | No active action |
-| 14 | Cross | No active action |
-| 15 | Square | No active action |
+| `0` | Select | Toggle parking brake |
+| `3` | Start | Toggle tank mode |
+| `4` | Up | Increase maximum speed by 25, capped at 255 |
+| `5` | Right | Set maximum speed to 255 |
+| `6` | Down | Decrease maximum speed by 25, floored at 25 |
+| `7` | Left | Set maximum speed to 25 |
+| `9` | R2 | Toggle drive enabled |
 
-Analog stick handling:
+Analog stick behavior:
 
-- Left stick Y controls the left-side drive command.
-- In normal mode, left stick Y also controls the right-side drive command.
-- In tank mode, right stick Y controls the right-side drive command.
-- Right stick X controls steering PWM.
-- Left stick X is mapped and printed in debug output, but it is not currently used for drive mixing.
+- Left stick Y controls left-side drive.
+- In normal mode, left stick Y also controls right-side drive.
+- In tank mode, right stick Y controls right-side drive.
+- Right stick X controls the steering BTS7960 command.
+- Left stick X is mapped and printed for debug, but is not currently used for mixing.
 
-The gas pedal scales motor output from `0` to `255`. A pedal reading of `0` suppresses drive output even if the remote is commanding speed. A full-scale pedal reading allows the full clamped remote command.
+The gas pedal scales the four drive motors from zero to full command. Steering is not scaled by the gas pedal, but it is still gated by link health, drive enable, and parking brake through `DriveSystem`.
 
-`maximumSpeed` starts at `255`; the minimum speed clamp is `25`. Nonzero stick commands are constrained between the current minimum and maximum speed before pedal scaling.
+## Protocol
 
-## Communication Protocol
-
-The packet format is implemented in `lib/Protocol/Protocol.h`. Both packet types start with:
+`lib/Protocol/Protocol.h` defines protocol version `4`. Both packet types begin with:
 
 | Byte | Meaning |
 | --- | --- |
-| `0` | Protocol version, currently `2` |
-| `1` | Packet type: `1` for control, `2` for status |
+| `0` | Protocol version |
+| `1` | Packet type: `1` control, `2` status |
 
-Control packet, 10 bytes total:
+Control packet, 10 bytes:
 
 | Byte(s) | Meaning |
 | --- | --- |
@@ -223,88 +222,56 @@ Control packet, 10 bytes total:
 | `1` | `PACKET_CONTROL` |
 | `2` | Sequence number |
 | `3` | Flags, bit `0x01` means controller present |
-| `4..5` | `buttonWord`, little-endian |
+| `4..5` | Button word, little-endian |
 | `6` | Left stick X |
 | `7` | Left stick Y |
 | `8` | Right stick X |
 | `9` | Right stick Y |
 
-Status packet, 14 bytes total:
+Status packet, 42 bytes:
 
 | Byte(s) | Meaning |
 | --- | --- |
 | `0` | Protocol version |
 | `1` | `PACKET_STATUS` |
-| `2` | Flags: bit `0x01` link OK, bit `0x02` controller present |
-| `3..4` | Raw RSSI, signed 16-bit little-endian |
-| `5..6` | Smoothed RSSI, signed 16-bit little-endian |
-| `7..8` | Battery millivolts, unsigned 16-bit little-endian |
-| `9..12` | Motor command percentages in front-left, front-right, rear-left, rear-right order |
-| `13` | ACK echo: last control sequence number the receiver decoded (`0` in the transmitter-to-receiver direction) |
+| `2` | Flags: link OK, controller present, parking brake, drive enabled, tank mode |
+| `3` | ACK echo: last control sequence decoded by receiver |
+| `4..5` | Raw RSSI, signed i16 little-endian |
+| `6..7` | Smoothed RSSI, signed i16 little-endian |
+| `8..9` | Battery total millivolts, u16 little-endian |
+| `10..11` | Battery midpoint millivolts, u16 little-endian |
+| `12..21` | `motorPwm[5]`, signed i16: FL, FR, RL, RR, STEER |
+| `22..41` | `currentSense[10]`, raw u16 ADC counts: FL_L, FL_R, FR_L, FR_R, RL_L, RL_R, RR_L, RR_R, STEER_L, STEER_R |
 
-The transmitter sends control packets immediately on state changes, otherwise at least every 50 ms, and status heartbeats every 100 ms. The receiver sends status heartbeats every 250 ms. The receiver considers the control link stale after 500 ms without a fresh control packet from a present controller.
+The transmitter and receiver must be built from matching protocol code. There is no compatibility shim for older v2/v3 packets.
 
-Both radios use the `Bw500Cr45Sf128` LoRa modem config (fast, short range) so each transmission is ~11 ms on air instead of ~46 ms at the RadioHead default; this keeps the receiver loop and software PWM from stalling. The transmitter and receiver must always use the same modem config.
+## Timing And Failsafes
 
-### Serial log format
+- Transmitter control packets: on change or at least every 50 ms.
+- Transmitter status packets: every 100 ms.
+- Receiver status packets: every 250 ms.
+- Link timeout: 500 ms.
 
-Both firmwares print one standardized line per logged event:
+On stale link or missing controller, the receiver resets controller state, clears button edge state, disables drive, and commands zero output. The receive LED on pin 13 stays on for 100 ms per received packet with a 100 ms off gap so activity is visible by eye.
 
-```
-[<millis>] <ROLE> <TAG> seq=<id> <key=value ...>
-```
-
-`ROLE` is `TX` or `RX`; `TAG` is `CTRL` (controller state), `DRV` (receiver drive mapping), `ACK` (receiver-acknowledged control seq, printed by the transmitter), or `ERR` (ignored packet). `seq` is the control sequence number the line refers to, so transmitter and receiver logs can be correlated and the `ACK` line's `seq` vs. `lastsent` shows how far behind the link is running.
-
-## Failsafe And Safety Behavior
-
-The receiver has important software failsafes:
-
-- If the control link is stale or the transmitter reports no controller, the receiver resets the controller state to neutral.
-- Link loss clears button edge state, marks button resync needed, turns `driveEnabled` off, disables the drive system, and commands zero drive.
-- Motors only run when the link is fresh, the remote controller is present, `driveEnabled` has been toggled on with R2, the parking brake is off, and the pedal input is nonzero.
-- Parking brake causes `DriveSystem` to call its brake path and record zero motor commands.
-
-This code can move a real vehicle. Test changes with motor power disabled, the vehicle lifted, or motor drivers disconnected until the behavior is understood.
-
-## Calibration And Tuning
-
-Places to tune behavior:
-
-- Radio pins/frequency: `include/RadioConfig.h`
-- Role build flags/environments: `platformio.ini`
-- PS2 pins: `src/tx_main.cpp`
-- Motor, steering, pedal, and battery pins: `src/rx_main.cpp`
-- Stick dead zones and stick-to-PWM mapping: the `AxisMap` constants in `src/rx_main.cpp`
-- Minimum/maximum speed behavior: `kMinimumSpeed`, `maximumSpeed`, and `clampSpeed()` in `src/rx_main.cpp`
-- Link and heartbeat timing: `CONTROL_PERIOD_MS`, `HEARTBEAT_PERIOD_MS`, and `LINK_TIMEOUT_MS`
-
-Receiver battery telemetry currently assumes a full-scale ADC reading corresponds to `48000` mV:
-
-```cpp
-(raw * 48000UL) / 1023UL
-```
-
-The resistor divider or sensing circuit that justifies this scale is not documented in the repo. Calibrate this before relying on battery telemetry.
-
-The steering output is `analogWrite()` PWM on pin `3`; the active code does not use the Arduino `Servo` library or servo pulse widths. Confirm that the steering hardware expects this signal before connecting it.
+LoRa sends still block in `rfm.waitPacketSent()`. The PCA9685 removes software PWM timing pressure, but radio transmission remains the largest intentional blocking operation in the loop.
 
 ## Troubleshooting
 
-- `RFM95 initialization failed`: check RFM95 power, SPI wiring, CS/reset/interrupt pins in `include/RadioConfig.h`, and that the board matches the Feather 32u4 PlatformIO environments.
-- `mcp begin error`: check MCP23017 power, SDA/SCL wiring, and I2C address. The code does not pass an explicit address to `mcp.begin_I2C()`.
-- Controller repeatedly appears and disappears: check PS2 wiring, controller power level, and the ATT/CMD/DAT/CLK pins in `src/tx_main.cpp`.
-- Receiver link never becomes OK: confirm both boards are built from the same protocol version, have the same radio frequency, and that one board is built as transmitter while the other is built as receiver.
-- Motors do not move: verify R2 has toggled drive enabled, Select has not enabled the parking brake, the pedal input is above zero, the receiver has a fresh link, and the BTS7960 enable/PWM pins match the wiring.
-- Steering does not behave like a hobby servo: the code uses `analogWrite()`, not servo pulses. Confirm the steering actuator interface.
+- `RFM95 initialization failed`: check radio power, SPI wiring, and `include/RadioConfig.h`.
+- `mcp begin error`: check MCP23017 power, SDA/SCL wiring, and default I2C address.
+- ADS1115 warning at boot: battery telemetry will report `0` mV until ADS1115 wiring/address is fixed.
+- Controller repeatedly appears/disappears: check PS2 wiring and ATT/CMD/DAT/CLK pins.
+- Receiver link never becomes OK: confirm matching protocol version, frequency, modem config, and opposite firmware roles.
+- Motors do not move: confirm R2 drive enable, Select parking brake state, gas pedal reading, fresh link, PCA9685 channels, MCP enable wiring, and BTS7960 power.
+- Steering does not move: confirm the steering BTS7960 is wired to PCA channels `8/9`, MCP enables `0/1`, and the receiver link/drive gates are active.
 
-## Known Limitations And Open Questions
+## Known Limitations
 
-- Transmitter and receiver are separate PlatformIO environments, but upload ports are not pinned in `platformio.ini`; select the correct connected board when uploading.
-- There are no project tests in `test/` beyond the default PlatformIO README.
-- Transmitter battery measurement is stubbed and always reports `0` mV.
-- Receiver battery scaling is hard-coded but the sensing circuit is not documented.
-- The exact PS2 button bit ordering is assumed by the receiver enum and should be confirmed against `PsxNewLib` and the actual controller.
-- `Joystick`, `MCPPWM`, `Utils`, and `sketchPad.txt` look like older experiments or unused helpers.
-- No wiring diagram, enclosure notes, RF module variant notes, or hardware revision information are included.
-- The protocol has a version byte and strict packet lengths, but no application-level checksum, authentication, or compatibility shim for future protocol versions.
+- No wiring diagram or hardware revision file is present.
+- ADS1115 and PCA9685 use library default I2C addresses.
+- Battery divider ratios are placeholders and require calibration.
+- Current telemetry is raw ADC counts, not amps. The BTS7960 board current-sense scaling is not documented here.
+- Transmitter battery telemetry is stubbed.
+- Upload ports are not pinned in `platformio.ini`.
+- There are no automated tests beyond successful PlatformIO builds.
