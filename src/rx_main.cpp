@@ -79,8 +79,8 @@ static const uint8_t STEER_RPWM = 8;
 static const uint8_t STEER_LPWM = 9;
 static const uint8_t STEER_REN = 0; // freed MCP pins formerly used for software PWM
 static const uint8_t STEER_LEN = 1;
-static const uint8_t STEER_RIS = A8;
-static const uint8_t STEER_LIS = A6;
+static const uint8_t STEER_RIS = A10;
+static const uint8_t STEER_LIS = A11;
 
 static const uint8_t RX_PACKET_LED_PIN = 13;
 
