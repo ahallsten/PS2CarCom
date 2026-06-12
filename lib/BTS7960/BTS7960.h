@@ -25,26 +25,27 @@ struct PinDef {
   PinSource source;
 };
 
+struct Bts7960PwmSideSnapshot {
+  /** PCA9685 output channel for this BTS7960 input. */
+  uint8_t channel = 0;
+
+  /** Last commanded 8-bit duty cycle for this channel. */
+  uint8_t duty = 0;
+};
+
 /**
-<<<<<<< Updated upstream
- * @brief Debug snapshot of one BTS7960 driver's PWM-side state.
+ * @brief Debug snapshot of one BTS7960 driver's PCA9685 PWM-side state.
  */
 struct Bts7960PwmSnapshot {
-  /** Scheduler state for the RPWM input. */
-  SoftwarePwmSnapshot rpwm;
-
-  /** Scheduler state for the LPWM input. */
-  SoftwarePwmSnapshot lpwm;
+  Bts7960PwmSideSnapshot rpwm;
+  Bts7960PwmSideSnapshot lpwm;
 
   /** Last nonzero drive direction selected by this wrapper. */
   int8_t direction = 0;
 };
 
 /**
- * @brief Controls one BTS7960 motor driver through PWM, enable, and sense pins.
-=======
  * @brief Controls one BTS7960 motor driver through PCA9685 PWM plus enable/sense pins.
->>>>>>> Stashed changes
  *
  * RPWM/LPWM are PCA9685 channel numbers. Enable pins may be on the MCU or
  * MCP23017. Current-sense pins are analog-read only when configured as MCU pins.
@@ -70,13 +71,11 @@ public:
   void disable();
   void stop();
 
-<<<<<<< Updated upstream
-  /** @brief Capture the current PWM scheduler state for both direction pins. */
+  /** Capture the current PCA9685 PWM state for both direction inputs. */
   void getPwmSnapshot(Bts7960PwmSnapshot &snapshot) const;
-=======
+
   /** Read raw L_IS and R_IS ADC values; non-MCU sense pins report zero. */
   void readCurrentSense(uint16_t &lisOut, uint16_t &risOut) const;
->>>>>>> Stashed changes
 
 private:
   Adafruit_MCP23X17 *_mcp;
@@ -87,6 +86,8 @@ private:
   PinDef _L_EN, _R_EN;
   PinDef _L_IS, _R_IS;
   int8_t _lastDir = 0;
+  uint8_t _rDuty = 0;
+  uint8_t _lDuty = 0;
 
   void pinModeX(PinDef pin, uint8_t mode);
   void digitalWriteX(PinDef pin, uint8_t value);

@@ -59,6 +59,8 @@ void BTS7960::drive(int16_t pwm) {
   if (dir != _lastDir) {
     _pwm->forceLow(_rPwmChannel);
     _pwm->forceLow(_lPwmChannel);
+    _rDuty = 0;
+    _lDuty = 0;
     if (_lastDir != 0) {
       delayMicroseconds(kDirectionDeadTimeUs);
     }
@@ -66,8 +68,12 @@ void BTS7960::drive(int16_t pwm) {
 
   if (dir > 0) {
     _pwm->setDuty(_rPwmChannel, duty);
+    _rDuty = duty;
+    _lDuty = 0;
   } else {
     _pwm->setDuty(_lPwmChannel, duty);
+    _rDuty = 0;
+    _lDuty = duty;
   }
 
   _lastDir = dir;
@@ -77,6 +83,8 @@ void BTS7960::brake() {
   if (!_pwm) return;
   _pwm->forceLow(_rPwmChannel);
   _pwm->forceLow(_lPwmChannel);
+  _rDuty = 0;
+  _lDuty = 0;
   _lastDir = 0;
 }
 
@@ -112,17 +120,16 @@ void BTS7960::stop() {
   coast();
 }
 
-<<<<<<< Updated upstream
 void BTS7960::getPwmSnapshot(Bts7960PwmSnapshot &snapshot) const {
   snapshot = Bts7960PwmSnapshot();
+  snapshot.rpwm.channel = _rPwmChannel;
+  snapshot.rpwm.duty = _rDuty;
+  snapshot.lpwm.channel = _lPwmChannel;
+  snapshot.lpwm.duty = _lDuty;
   snapshot.direction = _lastDir;
-  if (!_pwmx) return;
+}
 
-  _pwmx->getChannelSnapshot(_rPwmCh, snapshot.rpwm);
-  _pwmx->getChannelSnapshot(_lPwmCh, snapshot.lpwm);
-=======
 void BTS7960::readCurrentSense(uint16_t &lisOut, uint16_t &risOut) const {
   lisOut = analogReadX(_L_IS);
   risOut = analogReadX(_R_IS);
->>>>>>> Stashed changes
 }

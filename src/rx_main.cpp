@@ -473,32 +473,26 @@ static int16_t lastDbgRightX = 0;
 static uint8_t lastDbgPedal = 0;
 static int16_t lastDbgLeftDriveCommand = 0;
 static int16_t lastDbgRightDriveCommand = 0;
-static int16_t lastDbgMotorCommand[4] = {0, 0, 0, 0};
-static uint8_t lastDbgMotorRDuty[4] = {0, 0, 0, 0};
-static uint8_t lastDbgMotorLDuty[4] = {0, 0, 0, 0};
+static int16_t lastDbgMotorCommand[VEHICLE_MOTOR_COUNT] = {0};
+static uint8_t lastDbgMotorRDuty[VEHICLE_MOTOR_COUNT] = {0};
+static uint8_t lastDbgMotorLDuty[VEHICLE_MOTOR_COUNT] = {0};
 static bool lastDbgEnabled = false;
 static bool lastDbgTankMode = false;
 static bool lastDbgParkingBrake = false;
 static bool haveDriveDebug = false;
 static unsigned long lastDriveDebugMs = 0;
 
-static uint8_t snapshotDuty(const SoftwarePwmSnapshot &snapshot) {
-  return snapshot.valid ? snapshot.duty : 0;
+static uint8_t snapshotDuty(const Bts7960PwmSideSnapshot &snapshot) {
+  return snapshot.duty;
 }
 
-static void printPwmSideDebug(char side, const SoftwarePwmSnapshot &snapshot) {
+static void printPwmSideDebug(char side, const Bts7960PwmSideSnapshot &snapshot) {
   Serial.print(' ');
   Serial.print(side);
-  if (!snapshot.valid) {
-    Serial.print(F("=NA"));
-    return;
-  }
-
   Serial.print(F("@"));
-  Serial.print(snapshot.pinDef.pin);
+  Serial.print(snapshot.channel);
   Serial.print(F("="));
   Serial.print(snapshot.duty);
-  Serial.print(snapshot.state ? F("/H") : F("/L"));
 }
 
 static void printMotorPwmDebug(const __FlashStringHelper *name,
@@ -520,13 +514,13 @@ static void printMotorPwmDebug(const __FlashStringHelper *name,
 static void maybePrintDriveDebug() {
   if (!driveDebugEnabled) return;
 
-  int16_t motorCommand[4] = {0, 0, 0, 0};
-  Bts7960PwmSnapshot motorPwm[4];
-  drive.getLastCommands(motorCommand);
+  int16_t motorCommand[VEHICLE_MOTOR_COUNT] = {0};
+  Bts7960PwmSnapshot motorPwm[VEHICLE_MOTOR_COUNT];
+  drive.getMotorCommands(motorCommand);
   drive.getPwmSnapshots(motorPwm);
 
   bool motorChanged = false;
-  for (uint8_t i = 0; i < 4; ++i) {
+  for (uint8_t i = 0; i < VEHICLE_MOTOR_COUNT; ++i) {
     uint8_t rDuty = snapshotDuty(motorPwm[i].rpwm);
     uint8_t lDuty = snapshotDuty(motorPwm[i].lpwm);
     if (motorCommand[i] != lastDbgMotorCommand[i] ||
@@ -573,6 +567,7 @@ static void maybePrintDriveDebug() {
   printMotorPwmDebug(F("FR"), motorCommand[1], motorPwm[1]);
   printMotorPwmDebug(F("RL"), motorCommand[2], motorPwm[2]);
   printMotorPwmDebug(F("RR"), motorCommand[3], motorPwm[3]);
+  printMotorPwmDebug(F("ST"), motorCommand[4], motorPwm[4]);
   Serial.println();
 
   lastDbgLeftY = leftYPWM;
@@ -582,7 +577,7 @@ static void maybePrintDriveDebug() {
   lastDbgPedal = pedalDriveValue;
   lastDbgLeftDriveCommand = leftDriveCommand;
   lastDbgRightDriveCommand = rightDriveCommand;
-  for (uint8_t i = 0; i < 4; ++i) {
+  for (uint8_t i = 0; i < VEHICLE_MOTOR_COUNT; ++i) {
     lastDbgMotorCommand[i] = motorCommand[i];
     lastDbgMotorRDuty[i] = snapshotDuty(motorPwm[i].rpwm);
     lastDbgMotorLDuty[i] = snapshotDuty(motorPwm[i].lpwm);
@@ -630,27 +625,13 @@ static void controlsDecision() {
 
   pedalDriveValue = getGasPedalDriveValue();
 
-<<<<<<< Updated upstream
   leftDriveCommand = (clampSpeed(leftYPWM) * pedalDriveValue) / 255;
   rightDriveCommand = (clampSpeed(tankMode ? rightYPWM : leftYPWM) * pedalDriveValue) / 255;
+  int16_t steerDriveCommand = rightXPWM;
 
   drive.setEnabled(driveEnabled);
   drive.setParkingBrake(parkingBrake);
-  drive.applyDrive(leftDriveCommand, rightDriveCommand, leftDriveCommand, rightDriveCommand);
-
-  uint8_t steerPwm = static_cast<uint8_t>(constrain(rightXPWM + 127, 0, 255));
-  analogWrite(STEER_PWM, steerPwm);
-=======
-  int16_t leftDrive = (clampSpeed(leftYPWM) * pedal) / 255;
-  int16_t rightDrive = (clampSpeed(tankMode ? rightYPWM : leftYPWM) * pedal) / 255;
-  int16_t steerDrive = rightXPWM;
-
-  drive.setEnabled(driveEnabled);
-  drive.setParkingBrake(parkingBrake);
-  drive.applyDrive(leftDrive, rightDrive, leftDrive, rightDrive, steerDrive);
-
-  maybePrintDriveDebug();
->>>>>>> Stashed changes
+  drive.applyDrive(leftDriveCommand, rightDriveCommand, leftDriveCommand, rightDriveCommand, steerDriveCommand);
 }
 
 void setup() {
@@ -706,12 +687,8 @@ void loop() {
   updateRxPacketLed();
   handleIncomingPackets();
   controlsDecision();
-  sendStatusHeartbeat();
-<<<<<<< Updated upstream
-  pwmx.update();
   maybePrintDriveDebug();
-=======
->>>>>>> Stashed changes
+  sendStatusHeartbeat();
   updateRxPacketLed();
 }
 

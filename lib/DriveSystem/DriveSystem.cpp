@@ -115,24 +115,18 @@ void DriveSystem::getMotorCommands(int16_t out[VEHICLE_MOTOR_COUNT]) const {
   }
 }
 
-<<<<<<< Updated upstream
-void DriveSystem::getLastCommands(int16_t out[4]) const {
-  for (uint8_t i = 0; i < 4; ++i) {
-    out[i] = _lastCmd[i];
-  }
+void DriveSystem::getPwmSnapshots(Bts7960PwmSnapshot out[VEHICLE_MOTOR_COUNT]) const {
+  _fl.getPwmSnapshot(out[MOTOR_INDEX_FL]);
+  _fr.getPwmSnapshot(out[MOTOR_INDEX_FR]);
+  _rl.getPwmSnapshot(out[MOTOR_INDEX_RL]);
+  _rr.getPwmSnapshot(out[MOTOR_INDEX_RR]);
+  _steer.getPwmSnapshot(out[MOTOR_INDEX_STEER]);
 }
 
-void DriveSystem::getPwmSnapshots(Bts7960PwmSnapshot out[4]) const {
-  _fl.getPwmSnapshot(out[0]);
-  _fr.getPwmSnapshot(out[1]);
-  _rl.getPwmSnapshot(out[2]);
-  _rr.getPwmSnapshot(out[3]);
-=======
 void DriveSystem::readCurrentSense(uint16_t out[VEHICLE_CURRENT_SENSE_COUNT]) const {
   _fl.readCurrentSense(out[CURRENT_INDEX_FL_L], out[CURRENT_INDEX_FL_R]);
   _fr.readCurrentSense(out[CURRENT_INDEX_FR_L], out[CURRENT_INDEX_FR_R]);
   _rl.readCurrentSense(out[CURRENT_INDEX_RL_L], out[CURRENT_INDEX_RL_R]);
   _rr.readCurrentSense(out[CURRENT_INDEX_RR_L], out[CURRENT_INDEX_RR_R]);
   _steer.readCurrentSense(out[CURRENT_INDEX_STEER_L], out[CURRENT_INDEX_STEER_R]);
->>>>>>> Stashed changes
 }

@@ -58,23 +58,11 @@ public:
   void readCurrentSense(uint16_t out[VEHICLE_CURRENT_SENSE_COUNT]) const;
 
   /**
-   * @brief Return the latest signed commands recorded for FL, FR, RL, RR.
+   * @brief Capture PCA9685 PWM state in VehicleMotorIndex order.
    *
-   * These are the commands that survived receiver-level enable and parking
-   * brake checks, not merely the raw stick-mapping values.
-   *
-   * @param out Four signed command values in front-left, front-right,
-   * rear-left, rear-right order.
+   * @param out Motor PWM snapshots in FL, FR, RL, RR, steering order.
    */
-  void getLastCommands(int16_t out[4]) const;
-
-  /**
-   * @brief Capture PWM scheduler state for FL, FR, RL, RR.
-   *
-   * @param out Four motor PWM snapshots in front-left, front-right,
-   * rear-left, rear-right order.
-   */
-  void getPwmSnapshots(Bts7960PwmSnapshot out[4]) const;
+  void getPwmSnapshots(Bts7960PwmSnapshot out[VEHICLE_MOTOR_COUNT]) const;
 
 private:
   void enableAll();
