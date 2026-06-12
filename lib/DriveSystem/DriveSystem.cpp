@@ -115,14 +115,6 @@ void DriveSystem::getMotorCommands(int16_t out[VEHICLE_MOTOR_COUNT]) const {
   }
 }
 
-void DriveSystem::getPwmSnapshots(Bts7960PwmSnapshot out[VEHICLE_MOTOR_COUNT]) const {
-  _fl.getPwmSnapshot(out[MOTOR_INDEX_FL]);
-  _fr.getPwmSnapshot(out[MOTOR_INDEX_FR]);
-  _rl.getPwmSnapshot(out[MOTOR_INDEX_RL]);
-  _rr.getPwmSnapshot(out[MOTOR_INDEX_RR]);
-  _steer.getPwmSnapshot(out[MOTOR_INDEX_STEER]);
-}
-
 void DriveSystem::readCurrentSense(uint16_t out[VEHICLE_CURRENT_SENSE_COUNT]) const {
   _fl.readCurrentSense(out[CURRENT_INDEX_FL_L], out[CURRENT_INDEX_FL_R]);
   _fr.readCurrentSense(out[CURRENT_INDEX_FR_L], out[CURRENT_INDEX_FR_R]);

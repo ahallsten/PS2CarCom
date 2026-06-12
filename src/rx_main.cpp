@@ -474,37 +474,17 @@ static uint8_t lastDbgPedal = 0;
 static int16_t lastDbgLeftDriveCommand = 0;
 static int16_t lastDbgRightDriveCommand = 0;
 static int16_t lastDbgMotorCommand[VEHICLE_MOTOR_COUNT] = {0};
-static uint8_t lastDbgMotorRDuty[VEHICLE_MOTOR_COUNT] = {0};
-static uint8_t lastDbgMotorLDuty[VEHICLE_MOTOR_COUNT] = {0};
 static bool lastDbgEnabled = false;
 static bool lastDbgTankMode = false;
 static bool lastDbgParkingBrake = false;
 static bool haveDriveDebug = false;
 static unsigned long lastDriveDebugMs = 0;
 
-static uint8_t snapshotDuty(const Bts7960PwmSideSnapshot &snapshot) {
-  return snapshot.duty;
-}
-
-static void printPwmSideDebug(char side, const Bts7960PwmSideSnapshot &snapshot) {
-  Serial.print(' ');
-  Serial.print(side);
-  Serial.print(F("@"));
-  Serial.print(snapshot.channel);
-  Serial.print(F("="));
-  Serial.print(snapshot.duty);
-}
-
-static void printMotorPwmDebug(const __FlashStringHelper *name,
-                               int16_t command,
-                               const Bts7960PwmSnapshot &snapshot) {
+static void printMotorCommandDebug(const __FlashStringHelper *name, int16_t command) {
   Serial.print(' ');
   Serial.print(name);
-  Serial.print(F("(cmd="));
+  Serial.print(F("="));
   Serial.print(command);
-  printPwmSideDebug('R', snapshot.rpwm);
-  printPwmSideDebug('L', snapshot.lpwm);
-  Serial.print(F(")"));
 }
 
 // Mirror printDecodedControlDebug's gating: only emit the drive line when
@@ -515,17 +495,11 @@ static void maybePrintDriveDebug() {
   if (!driveDebugEnabled) return;
 
   int16_t motorCommand[VEHICLE_MOTOR_COUNT] = {0};
-  Bts7960PwmSnapshot motorPwm[VEHICLE_MOTOR_COUNT];
   drive.getMotorCommands(motorCommand);
-  drive.getPwmSnapshots(motorPwm);
 
   bool motorChanged = false;
   for (uint8_t i = 0; i < VEHICLE_MOTOR_COUNT; ++i) {
-    uint8_t rDuty = snapshotDuty(motorPwm[i].rpwm);
-    uint8_t lDuty = snapshotDuty(motorPwm[i].lpwm);
-    if (motorCommand[i] != lastDbgMotorCommand[i] ||
-        rDuty != lastDbgMotorRDuty[i] ||
-        lDuty != lastDbgMotorLDuty[i]) {
+    if (motorCommand[i] != lastDbgMotorCommand[i]) {
       motorChanged = true;
     }
   }
@@ -563,11 +537,11 @@ static void maybePrintDriveDebug() {
   Serial.print(tankMode ? F("ON") : F("OFF"));
   Serial.print(F(" PBRK="));
   Serial.print(parkingBrake ? F("ON") : F("OFF"));
-  printMotorPwmDebug(F("FL"), motorCommand[0], motorPwm[0]);
-  printMotorPwmDebug(F("FR"), motorCommand[1], motorPwm[1]);
-  printMotorPwmDebug(F("RL"), motorCommand[2], motorPwm[2]);
-  printMotorPwmDebug(F("RR"), motorCommand[3], motorPwm[3]);
-  printMotorPwmDebug(F("ST"), motorCommand[4], motorPwm[4]);
+  printMotorCommandDebug(F("FL"), motorCommand[0]);
+  printMotorCommandDebug(F("FR"), motorCommand[1]);
+  printMotorCommandDebug(F("RL"), motorCommand[2]);
+  printMotorCommandDebug(F("RR"), motorCommand[3]);
+  printMotorCommandDebug(F("ST"), motorCommand[4]);
   Serial.println();
 
   lastDbgLeftY = leftYPWM;
@@ -579,8 +553,6 @@ static void maybePrintDriveDebug() {
   lastDbgRightDriveCommand = rightDriveCommand;
   for (uint8_t i = 0; i < VEHICLE_MOTOR_COUNT; ++i) {
     lastDbgMotorCommand[i] = motorCommand[i];
-    lastDbgMotorRDuty[i] = snapshotDuty(motorPwm[i].rpwm);
-    lastDbgMotorLDuty[i] = snapshotDuty(motorPwm[i].lpwm);
   }
   lastDbgEnabled = driveEnabled;
   lastDbgTankMode = tankMode;

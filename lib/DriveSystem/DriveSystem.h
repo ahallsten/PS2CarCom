@@ -57,13 +57,6 @@ public:
   /** Read raw current-sense values in VehicleCurrentSenseIndex order. */
   void readCurrentSense(uint16_t out[VEHICLE_CURRENT_SENSE_COUNT]) const;
 
-  /**
-   * @brief Capture PCA9685 PWM state in VehicleMotorIndex order.
-   *
-   * @param out Motor PWM snapshots in FL, FR, RL, RR, steering order.
-   */
-  void getPwmSnapshots(Bts7960PwmSnapshot out[VEHICLE_MOTOR_COUNT]) const;
-
 private:
   void enableAll();
   void coastAll();
