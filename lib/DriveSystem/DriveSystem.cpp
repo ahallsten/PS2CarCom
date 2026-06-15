@@ -1,7 +1,7 @@
 #include "DriveSystem.h"
 
 DriveSystem::DriveSystem(Adafruit_MCP23X17 &mcp,
-                         Pca9685Pwm &pwm,
+                         Adafruit_PWMServoDriver &pwm,
                          const MotorPins &fl,
                          const MotorPins &fr,
                          const MotorPins &rl,

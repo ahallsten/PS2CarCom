@@ -4,7 +4,7 @@
 static const unsigned int kDirectionDeadTimeUs = 200;
 
 BTS7960::BTS7960(Adafruit_MCP23X17 *mcp,
-                 Pca9685Pwm *pwm,
+                 Adafruit_PWMServoDriver *pwm,
                  uint8_t rPwmChannel,
                  uint8_t lPwmChannel,
                  PinDef L_EN,
@@ -47,27 +47,27 @@ void BTS7960::begin() {
 
 void BTS7960::drive(int16_t pwm) {
   if (!_pwm) return;
-  pwm = constrain(pwm, -255, 255);
+  pwm = constrain(pwm, -4095, 4095);
   if (pwm == 0) {
     brake();
     return;
   }
 
   int8_t dir = (pwm > 0) ? 1 : -1;
-  uint8_t duty = static_cast<uint8_t>(abs(pwm));
+  uint16_t duty = static_cast<uint16_t>(abs(pwm));
 
   if (dir != _lastDir) {
-    _pwm->forceLow(_rPwmChannel);
-    _pwm->forceLow(_lPwmChannel);
+    _pwm->setPin(_rPwmChannel, 0);
+    _pwm->setPin(_lPwmChannel, 0);
     if (_lastDir != 0) {
       delayMicroseconds(kDirectionDeadTimeUs);
     }
   }
 
   if (dir > 0) {
-    _pwm->setDuty(_rPwmChannel, duty);
+    _pwm->setPin(_rPwmChannel, duty);
   } else {
-    _pwm->setDuty(_lPwmChannel, duty);
+    _pwm->setPin(_lPwmChannel, duty);
   }
 
   _lastDir = dir;
@@ -75,8 +75,8 @@ void BTS7960::drive(int16_t pwm) {
 
 void BTS7960::brake() {
   if (!_pwm) return;
-  _pwm->forceLow(_rPwmChannel);
-  _pwm->forceLow(_lPwmChannel);
+  _pwm->setPin(_rPwmChannel, 0);
+  _pwm->setPin(_lPwmChannel, 0);
   _lastDir = 0;
 }
 

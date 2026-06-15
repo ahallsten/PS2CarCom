@@ -20,7 +20,7 @@ Roles are selected by PlatformIO environments: `transmitter` and `receiver`. Do 
 - `lib/VehicleLayout/VehicleLayout.h`: motor and current-sense array ordering.
 - `src/tx_main.cpp`: PS2 handling, control send cadence, status receive logging.
 - `src/rx_main.cpp`: receiver hardware map, ADS1115 scaling, PCA9685 setup, control decisions, link failsafe, telemetry cadence.
-- `lib/BTS7960/`, `lib/DriveSystem/`, `lib/Pca9685Pwm/`: motor output behavior.
+- `lib/BTS7960/`, `lib/DriveSystem/`: motor output behavior using Adafruit PCA9685 writes.
 - `archive/SoftwarePWM/`: old software PWM implementation, preserved but inactive.
 
 ## Build And Validation Commands
@@ -106,7 +106,7 @@ Motor direction changes use a short break-before-make delay in `BTS7960`. Be car
 - Arduino C++ with two-space indentation.
 - Prefer file-local `static` constants/functions for receiver pin maps and scaling constants.
 - Use shared layout/protocol constants instead of duplicated magic array sizes.
-- Keep abstractions thin. `Pca9685Pwm` is intentionally a small adapter around the Adafruit driver.
+- Keep abstractions thin. The receiver uses `Adafruit_PWMServoDriver` directly for PCA9685 writes.
 - Add comments only for hardware assumptions, protocol scaling, or non-obvious timing/safety behavior.
 
 ## High-Caution Changes

@@ -31,10 +31,10 @@ struct AxisMap {
   uint8_t high_to;
 
   /** Minimum output value returned by mapAxis(). */
-  uint8_t out_min;
+  uint16_t out_min;
 
   /** Maximum output value returned by mapAxis() and mapAxisSigned(). */
-  uint8_t out_max;
+  uint16_t out_max;
 };
 
 /**
@@ -47,7 +47,7 @@ struct AxisMap {
  * @param m Axis calibration and output range.
  * @return Unsigned mapped value, or 0 while in the dead zone.
  */
-uint8_t mapAxis(uint8_t raw, const AxisMap &m);
+uint16_t mapAxis(uint8_t raw, const AxisMap &m);
 
 /**
  * @brief Map a raw 8-bit axis value into a signed PWM command.

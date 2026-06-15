@@ -7,7 +7,7 @@
 
 #include <Arduino.h>
 #include <Adafruit_MCP23X17.h>
-#include "Pca9685Pwm.h"
+#include <Adafruit_PWMServoDriver.h>
 
 enum class PinSource {
   /** Direct Arduino/microcontroller pin. */
@@ -34,7 +34,7 @@ struct PinDef {
 class BTS7960 {
 public:
   BTS7960(Adafruit_MCP23X17 *mcp,
-          Pca9685Pwm *pwm,
+          Adafruit_PWMServoDriver *pwm,
           uint8_t rPwmChannel,
           uint8_t lPwmChannel,
           PinDef L_EN,
@@ -57,7 +57,7 @@ public:
 
 private:
   Adafruit_MCP23X17 *_mcp;
-  Pca9685Pwm *_pwm;
+  Adafruit_PWMServoDriver *_pwm;
 
   uint8_t _rPwmChannel;
   uint8_t _lPwmChannel;

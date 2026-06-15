@@ -3,8 +3,8 @@
 
 #include <Arduino.h>
 #include <Adafruit_MCP23X17.h>
+#include <Adafruit_PWMServoDriver.h>
 #include "BTS7960.h"
-#include "Pca9685Pwm.h"
 #include "VehicleLayout.h"
 
 struct MotorPins {
@@ -33,7 +33,7 @@ struct MotorPins {
 class DriveSystem {
 public:
   DriveSystem(Adafruit_MCP23X17 &mcp,
-              Pca9685Pwm &pwm,
+              Adafruit_PWMServoDriver &pwm,
               const MotorPins &fl,
               const MotorPins &fr,
               const MotorPins &rl,

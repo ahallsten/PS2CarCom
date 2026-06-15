@@ -40,9 +40,8 @@ The receiver uses the PCA9685 for all BTS7960 RPWM/LPWM inputs at 50 Hz. The MCP
 | `src/rx_main.cpp` | Receiver firmware, hardware map, control decisions, telemetry sampling. |
 | `lib/Protocol/Protocol.h` | Shared control/status packet format. |
 | `lib/VehicleLayout/VehicleLayout.h` | Shared motor/current-sense ordering constants. |
-| `lib/BTS7960/` | Low-level BTS7960 wrapper. |
+| `lib/BTS7960/` | Low-level BTS7960 wrapper using Adafruit PCA9685 channel writes. |
 | `lib/DriveSystem/` | Five-driver vehicle output coordinator. |
-| `lib/Pca9685Pwm/` | Thin PCA9685 PWM adapter. |
 | `lib/AxisMap/` | Stick dead-zone and PWM mapping helpers. |
 | `lib/Controller/` | Controller state, button edges, and serial debug helpers. |
 | `archive/SoftwarePWM/` | Previous software PWM implementation, preserved but inactive. |

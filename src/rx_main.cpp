@@ -13,7 +13,6 @@
 #include "ControllerState.h"
 #include "DriveSystem.h"
 #include "FirmwareInfo.h"
-#include "Pca9685Pwm.h"
 #include "Protocol.h"
 #include "RadioConfig.h"
 
@@ -87,7 +86,6 @@ static const uint8_t RX_PACKET_LED_PIN = 13;
 static Adafruit_MCP23X17 mcp;
 static Adafruit_PWMServoDriver pca9685;
 static Adafruit_ADS1115 ads1115;
-static Pca9685Pwm pwm(pca9685);
 static bool adsReady = false;
 
 static const MotorPins kFlPins = {
@@ -135,7 +133,7 @@ static const MotorPins kSteerPins = {
   { STEER_RIS, PinSource::MCU_PIN }
 };
 
-static DriveSystem drive(mcp, pwm, kFlPins, kFrPins, kRlPins, kRrPins, kSteerPins);
+static DriveSystem drive(mcp, pca9685, kFlPins, kFrPins, kRlPins, kRrPins, kSteerPins);
 static RH_RF95 rfm(RFM95_CS, RFM95_INT);
 
 static ControllerState currentState = kNeutralControllerState;
@@ -185,10 +183,10 @@ static uint8_t pedalDriveValue = 0;
 static int16_t leftDriveCommand = 0;
 static int16_t rightDriveCommand = 0;
 
-static const AxisMap kLeftYMap = { 110, 110, 0, 145, 145, 255, 0, 255 };
-static const AxisMap kLeftXMap = { 90, 90, 0, 145, 145, 255, 0, 255 };
-static const AxisMap kRightYMap = { 105, 105, 0, 135, 135, 255, 0, 255 };
-static const AxisMap kRightXMap = { 105, 105, 0, 135, 135, 255, 0, 255 };
+static const AxisMap kLeftYMap = { 110, 110, 0, 145, 145, 255, 0, 4095 };
+static const AxisMap kLeftXMap = { 90, 90, 0, 145, 145, 255, 0, 4095 };
+static const AxisMap kRightYMap = { 105, 105, 0, 135, 135, 255, 0, 4095 };
+static const AxisMap kRightXMap = { 105, 105, 0, 135, 135, 255, 0, 4095 };
 
 static const unsigned long STATUS_PERIOD_MS = 250;
 static const unsigned long LINK_TIMEOUT_MS = 500;
@@ -562,6 +560,22 @@ static void maybePrintDriveDebug() {
   lastDriveDebugMs = now;
 }
 
+static void writeBtsPwm(uint8_t rpwm, uint8_t lpwm, int16_t command) {
+  command = constrain(command, -4095, 4095);
+  const uint16_t duty = static_cast<uint16_t>(abs(command));
+
+  if (command > 0) {
+    pca9685.setPin(lpwm, 0);
+    pca9685.setPin(rpwm, duty);
+  } else if (command < 0) {
+    pca9685.setPin(rpwm, 0);
+    pca9685.setPin(lpwm, duty);
+  } else {
+    pca9685.setPin(rpwm, 0);
+    pca9685.setPin(lpwm, 0);
+  }
+}
+
 static void controlsDecision() {
   if (!hasFreshControlLink()) {
     currentState = kNeutralControllerState;
@@ -581,6 +595,8 @@ static void controlsDecision() {
     return;
   }
 
+
+  // TO DO: I only need to do something if there is a new control message. This is redundant 
   if (needButtonResync) {
     previousState = currentState;
     buttonEdges.reset(currentState.buttonWord);
@@ -590,20 +606,31 @@ static void controlsDecision() {
     buttonEdges.update(currentState.buttonWord, onRisingEdge, nullptr, nullptr);
   }
 
+  // TO DO: rewrite stuff after axis mapping. This is probably where the issue is 
   leftYPWM = mapAxisSigned(currentState.leftY, kLeftYMap);
   leftXPWM = mapAxisSigned(currentState.leftX, kLeftXMap);
   rightYPWM = mapAxisSigned(currentState.rightY, kRightYMap);
   rightXPWM = mapAxisSigned(currentState.rightX, kRightXMap);
 
-  pedalDriveValue = getGasPedalDriveValue();
+  // pedalDriveValue = getGasPedalDriveValue();
 
-  leftDriveCommand = (clampSpeed(leftYPWM) * pedalDriveValue) / 255;
-  rightDriveCommand = (clampSpeed(tankMode ? rightYPWM : leftYPWM) * pedalDriveValue) / 255;
-  int16_t steerDriveCommand = rightXPWM;
+  // leftDriveCommand = (clampSpeed(leftYPWM) * pedalDriveValue) / 255;
+  // rightDriveCommand = (clampSpeed(tankMode ? rightYPWM : leftYPWM) * pedalDriveValue) / 255;
+  // int16_t steerDriveCommand = rightXPWM;
 
-  drive.setEnabled(driveEnabled);
-  drive.setParkingBrake(parkingBrake);
-  drive.applyDrive(leftDriveCommand, rightDriveCommand, leftDriveCommand, rightDriveCommand, steerDriveCommand);
+  // drive.setEnabled(driveEnabled);
+  // drive.setParkingBrake(parkingBrake);
+  // drive.applyDrive(leftDriveCommand, rightDriveCommand, leftDriveCommand, rightDriveCommand, steerDriveCommand);
+ 
+  // add stuff here to do raw writes to PCA98685 PWM Channels
+  // If command is negative spin motors in one direction, if 0 stop motors, if command is positve spin the other direction
+  writeBtsPwm(0, 1, leftYPWM);
+  writeBtsPwm(2, 3, leftYPWM);
+  writeBtsPwm(4, 5, leftYPWM);
+  writeBtsPwm(6, 7, leftYPWM);
+
+
+// TO DO END
 }
 
 void setup() {
@@ -623,7 +650,16 @@ void setup() {
     }
   }
 
-  pwm.begin(PCA9685_PWM_FREQ_HZ);
+  if (!pca9685.begin()) {
+    Serial.println("PCA9685 initialization failed");
+    while (1) {
+      Serial.println("PCA9685 error");
+    }
+  }
+  pca9685.setPWMFreq(PCA9685_PWM_FREQ_HZ);
+  for (uint8_t channel = 0; channel < 16; ++channel) {
+    pca9685.setPin(channel, 0);
+  }
 
   adsReady = ads1115.begin();
   if (adsReady) {
