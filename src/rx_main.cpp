@@ -560,21 +560,21 @@ static void maybePrintDriveDebug() {
   lastDriveDebugMs = now;
 }
 
-static void writeBtsPwm(uint8_t rpwm, uint8_t lpwm, int16_t command) {
-  command = constrain(command, -4095, 4095);
-  const uint16_t duty = static_cast<uint16_t>(abs(command));
+// static void writeBtsPwm(uint8_t rpwm, uint8_t lpwm, int16_t command) {
+//   command = constrain(command, -4095, 4095);
+//   const uint16_t duty = static_cast<uint16_t>(abs(command));
 
-  if (command > 0) {
-    pca9685.setPin(lpwm, 0);
-    pca9685.setPin(rpwm, duty);
-  } else if (command < 0) {
-    pca9685.setPin(rpwm, 0);
-    pca9685.setPin(lpwm, duty);
-  } else {
-    pca9685.setPin(rpwm, 0);
-    pca9685.setPin(lpwm, 0);
-  }
-}
+//   if (command > 0) {
+//     pca9685.setPin(lpwm, 0);
+//     pca9685.setPin(rpwm, duty);
+//   } else if (command < 0) {
+//     pca9685.setPin(rpwm, 0);
+//     pca9685.setPin(lpwm, duty);
+//   } else {
+//     pca9685.setPin(rpwm, 0);
+//     pca9685.setPin(lpwm, 0);
+//   }
+// }
 
 static void controlsDecision() {
   if (!hasFreshControlLink()) {
@@ -595,7 +595,6 @@ static void controlsDecision() {
     return;
   }
 
-
   // TO DO: I only need to do something if there is a new control message. This is redundant 
   if (needButtonResync) {
     previousState = currentState;
@@ -612,22 +611,22 @@ static void controlsDecision() {
   rightYPWM = mapAxisSigned(currentState.rightY, kRightYMap);
   rightXPWM = mapAxisSigned(currentState.rightX, kRightXMap);
 
-  // pedalDriveValue = getGasPedalDriveValue();
-
+  pedalDriveValue = getGasPedalDriveValue();
+  
   // leftDriveCommand = (clampSpeed(leftYPWM) * pedalDriveValue) / 255;
   // rightDriveCommand = (clampSpeed(tankMode ? rightYPWM : leftYPWM) * pedalDriveValue) / 255;
-  // int16_t steerDriveCommand = rightXPWM;
-
-  // drive.setEnabled(driveEnabled);
-  // drive.setParkingBrake(parkingBrake);
+  int16_t steerDriveCommand = rightXPWM;
+  
+  drive.setEnabled(driveEnabled);
+  drive.setParkingBrake(parkingBrake);
   // drive.applyDrive(leftDriveCommand, rightDriveCommand, leftDriveCommand, rightDriveCommand, steerDriveCommand);
+  drive.applyDrive(leftYPWM, rightYPWM, leftYPWM, rightYPWM, steerDriveCommand);
  
-  // add stuff here to do raw writes to PCA98685 PWM Channels
-  // If command is negative spin motors in one direction, if 0 stop motors, if command is positve spin the other direction
-  writeBtsPwm(0, 1, leftYPWM);
-  writeBtsPwm(2, 3, leftYPWM);
-  writeBtsPwm(4, 5, leftYPWM);
-  writeBtsPwm(6, 7, leftYPWM);
+
+  // writeBtsPwm(0, 1, leftYPWM);
+  // writeBtsPwm(2, 3, leftYPWM);
+  // writeBtsPwm(4, 5, leftYPWM);
+  // writeBtsPwm(6, 7, leftYPWM);
 
 
 // TO DO END

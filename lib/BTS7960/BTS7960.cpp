@@ -53,6 +53,22 @@ void BTS7960::drive(int16_t pwm) {
     return;
   }
 
+//   static void writeBtsPwm(uint8_t rpwm, uint8_t lpwm, int16_t command) {
+//   command = constrain(command, -4095, 4095);
+//   const uint16_t duty = static_cast<uint16_t>(abs(command));
+
+//   if (command > 0) {
+//     pca9685.setPin(lpwm, 0);
+//     pca9685.setPin(rpwm, duty);
+//   } else if (command < 0) {
+//     pca9685.setPin(rpwm, 0);
+//     pca9685.setPin(lpwm, duty);
+//   } else {
+//     pca9685.setPin(rpwm, 0);
+//     pca9685.setPin(lpwm, 0);
+//   }
+// }
+
   int8_t dir = (pwm > 0) ? 1 : -1;
   uint16_t duty = static_cast<uint16_t>(abs(pwm));
 
