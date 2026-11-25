@@ -77,18 +77,28 @@ Existing firmware pin intent:
 | RFM95_INT | 7 |
 | SPI SCK/MOSI/MISO | Hardware SPI |
 
-### Existing BTS7960-style motor control
+### BTS7960 motor control (current firmware map)
 
-Current firmware defines four motor channels.
+Five channels: FL, FR, RL, RR, STEER. PWM comes from the PCA9685 (50 Hz), enables come from the MCP23017, and current sense goes to native Feather ADC pins. The authoritative map is `src/rx_main.cpp`, mirrored in `AGENTS/AGENTS.md`.
 
-| Channel | RPWM | LPWM | R_EN | L_EN | R_IS | L_IS |
-|---|---:|---:|---:|---:|---:|---:|
-| Front left | 12 | 13 | MCP/B0? | MCP/B1? | A0 | A1 |
-| Front right | 11 | 10 | MCP/B2? | MCP/B3? | A2 | A3 |
-| Rear left | 7? | 6? | MCP/B4? | MCP/B5? | A4 | A5 |
-| Rear right | 5? | 4? | MCP/B6? | MCP/B7? | 6 | 9 |
+| Channel | RPWM / LPWM (PCA9685 ch) | R_EN / L_EN (MCP23017 pin) | R_IS / L_IS (Feather pin) |
+|---|---|---|---|
+| FL | 0 / 1 | 10 / 11 | A0 / A1 |
+| FR | 2 / 3 | 12 / 13 | A2 / A3 |
+| RL | 4 / 5 | 8 / 9 | A4 / A5 |
+| RR | 6 / 7 | 14 / 15 | D6 / D9 ⚠ |
+| STEER | 8 / 9 | 0 / 1 | A10 (D10) / A11 (D12) |
 
-Caution: comments and implementation need review. Some signals are commented as MCP23017 pins while the `BTS7960` class uses Arduino `digitalWrite()` and `analogWrite()` directly. Resolve before schematic pin lock.
+⚠ D6 is also `GAS_PEDAL_PIN A7`. D9 carries the Feather's VBAT divider. Resolve before pin lock (`AGENTS/project_context.md` §8).
+
+Planned DF11 harness per driver (Rev A logic PCB, one connector ×5): RPWM, LPWM, R_EN, L_EN, R_IS, L_IS, VCC (logic), GND. Use the 2×5 DF11 so the two spare positions can carry extra GND. Every R_EN/L_EN gets a pull-down on the PCB so the motors default off.
+
+### Driver cooling (planned)
+
+| Interface | Signals | Notes |
+|---|---|---|
+| Heatsink thermistor | NTC + GND | 10k NTC against the BTS7960 heatsinks. Proposed input: ADS1115 ch3. |
+| Fan output | FAN+, FAN− | Low-side MOSFET on the logic PCB, driven from a Feather/MCP pin. Flyback diode. Fan voltage TBD (likely pack voltage). |
 
 ### ESC-style motor outputs for future brushless upgrade
 

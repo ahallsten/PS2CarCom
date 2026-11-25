@@ -1,43 +1,22 @@
-# AGENTS.md
+# AGENTS.Altium.md — Hardware/PCB Agent Guide
 
-This file gives Codex and other AI assistants durable project context for this repository.
+Hardware and PCB rules for this repository. For the current firmware and hardware map, read `AGENTS/AGENTS.md`. For design intent, decisions, and open questions, read `AGENTS/project_context.md`.
 
 ## Project identity
 
-This is a C++/Arduino + Altium PCB project for a remote-controlled Power Wheels / small vehicle platform. The project has two major electronics assemblies:
+This is a C++/Arduino + PCB (Altium/KiCad) project for a remote-controlled Power Wheels / small vehicle platform. The project has two major electronics assemblies:
 
 1. Transmitter / handheld controller board.
 2. Receiver / vehicle control board.
 
-The current firmware is a PlatformIO Arduino project targeting an Adafruit Feather 32u4-style environment. The existing firmware has conditional roles for TRANSMITTER and RECEIVER, with RECEIVER currently enabled in `main.cpp`.
+Firmware is PlatformIO/Arduino on Adafruit Feather 32u4 RFM95 boards, with separate `transmitter` and `receiver` environments. The receiver logic PCB Rev A is being done in KiCad (`hardware/kicad/receiver_logic/`); see `project_context.md` §9.
 
 ## Current firmware facts
 
-- PlatformIO environment: `feather32u4`.
-- Platform: `atmelavr`.
-- Framework: Arduino.
-- Serial monitor: 115200 baud.
-- Current dependencies include:
-  - Adafruit SleepyDog Library
-  - RadioHead
-  - PsxNewLib
-  - LibPrintf
-  - Adafruit MCP23017 Arduino Library
-- Radio currently uses an RH_RF95 object with RFM95 pins:
-  - CS: 8
-  - RST: 4
-  - INT: 7
-  - Frequency: 915.0 MHz
-- Transmitter firmware intent:
-  - Read PS2 controller state.
-  - Serialize `ControllerState`.
-  - Send packets over RFM9x / RH_RF95.
-- Receiver firmware intent:
-  - Receive `ControllerState` packets.
-  - Interpret button edges and joystick axes.
-  - Control motor drivers and steering.
-  - Current receiver code references MCP23017 expansion and four BTS7960 motor driver objects: front-left, front-right, rear-left, rear-right.
-- Check for missing/local headers before building, especially `Joystick.h` and `AxisMap.h`.
+The firmware facts that used to live here were out of date. The authoritative versions are now:
+
+- Build environments, pin/channel map, and protocol: `AGENTS/AGENTS.md`.
+- Defect status and pin conflicts: `AGENTS/project_context.md` §2 and §8.
 
 ## Hardware vision
 
@@ -152,36 +131,25 @@ Altium file guidance:
 
 ```text
 /
-  AGENTS.md
+  CLAUDE.md                 pointer to AGENTS/
   platformio.ini
-  src/ or firmware/
-  include/
-  lib/
-  docs/
-    pcb/
-      pcb_design_plan.md
-      ai_altium_workflow.md
-      interface_inventory.md
-      current_budget.md
-      component_selection.md
+  src/ include/ lib/        firmware
+  AGENTS/                   agent and design docs (this folder)
   hardware/
-    altium/
-      transmitter/
-      receiver/
+    kicad/receiver_logic/   receiver logic PCB Rev A
+    cad/driver_enclosure/   3D-printed BTS7960/fan/PCB enclosure (STEP + STL)
+    altium/                 if/when Altium boards are created
     datasheets/
-    releases/
-      transmitter/
-      receiver/
+    releases/<board>/<rev>/ fab outputs (Gerbers, BOM, CPL, PDFs)
 ```
-
-The current uploaded files are flat in the project root. If reorganizing, update PlatformIO paths carefully.
 
 ## Firmware verification commands
 
 Use PlatformIO as the source of truth.
 
 ```sh
-pio run -e feather32u4
+pio run -e transmitter
+pio run -e receiver
 ```
 
 Before changing PCB pin assignments, update firmware pin maps and interface tables together.
@@ -234,12 +202,7 @@ Only integrate high-current H-bridges or battery charging on the main receiver P
 
 ## Known firmware issues to review before PCB pin lock
 
-- `detectButtonWordStateChange()` currently declares `previousButtonWord` locally without initialization/persistence. It should likely be `static` or a global initialized to zero.
-- The `map()` calls intended to limit max speed do not assign the return value.
-- Receiver currently drives all four motors from `leftPWM`; verify steering/tank/mixing logic before final pin allocation.
-- Some comments mention MCP23017 pins while some `BTS7960` methods use Arduino `digitalWrite()` directly. Confirm which signals are on the MCU versus MCP23017 before board design.
-- BTS7960 header declares `disable()` and `stop()` but implementation currently does not define them.
-- Resolve missing headers and build warnings before freezing electrical interfaces.
+See `AGENTS/project_context.md` §2 (defect status) and §8 (pin conflicts). Most historical issues are fixed. The open ones that affect the PCB are the pin conflicts on D6 and D9, the lack of a spare analog input for the thermistor, and the hardware pull-downs on enables.
 
 ## Open decisions
 
