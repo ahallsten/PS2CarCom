@@ -306,8 +306,8 @@ Net names should be descriptive:
 
 Give Codex small, checkable tasks:
 
-1. Build a `docs/pcb/current_budget.md` table for transmitter and receiver rails.
-2. Build a `docs/pcb/interface_inventory.md` from firmware pins plus desired sensors/accessories.
+1. Build a `AGENTS/current_budget.md` table for transmitter and receiver rails.
+2. Build a `AGENTS/interface_inventory.md` from firmware pins plus desired sensors/accessories.
 3. Build a component candidate table with JLCPCB/LCSC numbers for passives, MOSFETs, regulators, LEDs, connectors, TVS parts, and common logic.
 4. Review firmware pin usage and flag conflicts before schematic pin lock.
 5. Generate Altium naming conventions and OutJob checklist.

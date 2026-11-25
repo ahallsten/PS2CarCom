@@ -2,6 +2,18 @@
 
 Operational notes for future Codex/agent work in this repository.
 
+## Doc Index
+
+| File | Read when |
+|---|---|
+| `AGENTS/AGENTS.md` (this file) | Always. Current firmware/hardware map, build, safety-sensitive code. |
+| `AGENTS/project_context.md` | Before any design, safety, PCB, or CAD work. Holds design intent, open defects, pin conflicts, decisions, and open questions. |
+| `AGENTS/AGENTS.Altium.md` | Hardware/PCB rules: board partitioning, safety non-negotiables, JLCPCB part rules. |
+| `AGENTS/pcb_design_plan.md` | Board set, power trees, charger options, sensor topology, schematic page plan. |
+| `AGENTS/interface_inventory.md` | Connector and pinout tables for each board. |
+| `AGENTS/ai_altium_workflow.md` | AI-assisted ECAD workflow, review checklists, bring-up. |
+| `AGENTS/Nextion/` | Transmitter display UI and its serial protocol. |
+
 ## Project Summary
 
 PS2CarCom is a PlatformIO Arduino project for two Adafruit Feather 32u4/RFM95 boards:
@@ -69,9 +81,11 @@ Native analog current-sense ordering is:
 - `FR_L=A3`, `FR_R=A2`
 - `RL_L=A5`, `RL_R=A4`
 - `RR_L=9`, `RR_R=6`
-- `STEER_L=A6`, `STEER_R=A8`
+- `STEER_L=A11` (D12), `STEER_R=A10` (D10)
 
 Gas pedal remains `A7`. ADS1115 channel `0` is total pack voltage; channel `1` is midpoint voltage. ADS1115 and PCA9685 use library default I2C addresses unless code is changed.
+
+**Known pin conflicts (unresolved):** `A7` is Feather 32u4 D6, the same pin as `RR_R=6`. `RR_L=9` shares D9 with the Feather's onboard VBAT divider. See `AGENTS/project_context.md` §8 for the proposed fix. Don't freeze a PCB pinout until these are resolved.
 
 ## Protocol Guidance
 
@@ -127,6 +141,7 @@ Do not move `archive/SoftwarePWM/` back into active `lib/` unless intentionally 
 - No wiring diagram or hardware revision file is present.
 - Battery divider ratios are placeholders and must be calibrated.
 - Current sense telemetry is raw ADC counts; BTS7960 current-to-ADC scaling is not documented.
-- Feather 32u4 analog availability for `A6` and `A8` should be confirmed on the exact board/wiring.
+- No watchdog is enabled yet, even though SleepyDog is a dependency.
+- Speed limit (`clampSpeed`), tank/normal mixing, and the gas pedal are not wired into `applyDrive()` yet. See `AGENTS/project_context.md` §2.
 - Transmitter battery telemetry is a TODO and reports `0`.
 - PS2 button bit ordering is assumed by the enum in `src/rx_main.cpp`; confirm against PsxNewLib before changing button behavior.

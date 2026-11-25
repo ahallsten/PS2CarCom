@@ -41,7 +41,7 @@ hardware/altium/              Native Altium projects
 hardware/releases/            Exported manufacturing packages
 hardware/datasheets/          Datasheets and notes
 hardware/parts/               BOM candidate CSVs and library notes
-docs/pcb/                     Human/AI readable design intent
+AGENTS/                     Human/AI readable design intent
 ```
 
 Track these in Git:
@@ -73,8 +73,8 @@ Give Codex a bounded task, clear inputs, and a required output format.
 Example:
 
 ```text
-Read docs/pcb/pcb_design_plan.md and the uploaded datasheets in hardware/datasheets.
-Create docs/pcb/component_selection.md with candidate JLCPCB-assemblable parts for:
+Read AGENTS/pcb_design_plan.md and the uploaded datasheets in hardware/datasheets.
+Create AGENTS/component_selection.md with candidate JLCPCB-assemblable parts for:
 - 0603 resistors/capacitors
 - status LEDs
 - low-side MOSFET outputs up to 2 A
